@@ -57,6 +57,7 @@ import {
   updateSubscriptionPlan,
   deleteSubscriptionPlan
 } from "../controller/subcriptionPlan.controller.js";
+import { LessonQuestionController } from "../controller/lessonQuestion.controller.js";
 
 const indexRouter = express.Router();
 
@@ -193,6 +194,27 @@ indexRouter.get("/getAllSubscriptionPlans", getAllSubscriptionPlans);
 indexRouter.get("/getSubscriptionPlanById/:id", getSubscriptionPlanById);
 indexRouter.put("/admin/updateSubscriptionPlan/:id", UserAuth, adminAuth, updateSubscriptionPlan);
 indexRouter.delete("/admin/deleteSubscriptionPlan/:id", UserAuth, adminAuth, deleteSubscriptionPlan);
+
+// ==========================================
+// 11. Lesson & Question Routes (Admin & User)
+// ==========================================
+// Admin Lesson CRUD
+indexRouter.post("/admin/createLesson", UserAuth, adminAuth, LessonQuestionController.createLesson);
+indexRouter.get("/admin/getAllLessonsAdmin", UserAuth, adminAuth, LessonQuestionController.getAllLessonsAdmin);
+indexRouter.put("/admin/updateLesson/:id", UserAuth, adminAuth, LessonQuestionController.updateLesson);
+indexRouter.delete("/admin/deleteLesson/:id", UserAuth, adminAuth, LessonQuestionController.deleteLesson);
+
+// Admin Question CRUD (supports S3 image & audio uploads)
+indexRouter.post("/admin/createQuestion", UserAuth, adminAuth, upload.fields([{ name: "image", maxCount: 1 }, { name: "audio", maxCount: 1 },]), LessonQuestionController.createQuestion);
+indexRouter.put("/admin/updateQuestion/:id", UserAuth, adminAuth, upload.fields([{ name: "image", maxCount: 1 }, { name: "audio", maxCount: 1 },]), LessonQuestionController.updateQuestion);
+indexRouter.delete("/admin/deleteQuestion/:id", UserAuth, adminAuth, LessonQuestionController.deleteQuestion);
+indexRouter.get("/admin/getAllquestions", LessonQuestionController.getAllQuestions);
+indexRouter.get("/admin/getQuestionById/:id", LessonQuestionController.getQuestionById);
+indexRouter.get("/user/getQuestionById/:id", UserAuth, LessonQuestionController.getQuestionById);
+
+// User Journey & Verification Routes
+indexRouter.get("/user/getUserJourney", UserAuth, LessonQuestionController.getUserJourney);
+indexRouter.post("/user/verifyUserSpeaking/:questionId", UserAuth, upload.single("audio"), LessonQuestionController.verifyUserSpeaking);
 
 indexRouter.get("/list", async (req, res) => {
   try {

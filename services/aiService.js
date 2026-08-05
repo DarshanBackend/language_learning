@@ -1,24 +1,56 @@
 import OpenAI, { toFile } from "openai";
+import axios from "axios";
 import dotenv from "dotenv";
 dotenv.config();
 
-const apiKey = process.env.OPENAI_API_KEY;
+const openaiApiKey = process.env.OPENAI_API_KEY;
+const googleApiKey = process.env.BARD_API || process.env.GEMINI_API_KEY;
 
-if (!apiKey) {
-  console.warn("⚠️ WARNING: OPENAI_API_KEY is not set in environment variables!");
-}
-
+// Initialize OpenAI client
 const openai = new OpenAI({
-  apiKey: apiKey || "dummy-key-for-now",
+  apiKey: openaiApiKey || "dummy-key-for-now",
 });
 
-/**
- * Transcribe audio buffer using OpenAI Whisper-1 model
- * @param {Buffer} fileBuffer
- * @param {string} originalname
- * @returns {Promise<string>} Transcribed text
- */
+
 export const transcribeAudio = async (fileBuffer, originalname) => {
+  if (googleApiKey && googleApiKey !== "dummy-key-for-now") {
+    try {
+      let mimeType = "audio/mp3";
+      const ext = originalname.substring(originalname.lastIndexOf(".")).toLowerCase();
+      if (ext === ".wav") mimeType = "audio/wav";
+      else if (ext === ".m4a") mimeType = "audio/m4a";
+      else if (ext === ".ogg") mimeType = "audio/ogg";
+      else if (ext === ".aac") mimeType = "audio/aac";
+      else if (ext === ".webm") mimeType = "audio/webm";
+
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`;
+      const response = await axios.post(url, {
+        contents: [{
+          parts: [
+            {
+              inlineData: {
+                mimeType,
+                data: fileBuffer.toString("base64")
+              }
+            },
+            {
+              text: "Please transcribe this audio recording. Output ONLY the transcribed words, with no punctuation or extra explanation."
+            }
+          ]
+        }]
+      });
+
+      const text = response.data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) {
+        throw new Error("No transcription text returned from Gemini");
+      }
+      return text.trim();
+    } catch (error) {
+      console.error("❌ Gemini Transcription Error:", error.message);
+      throw new Error(`Google Speech-to-Text transcription failed: ${error.message}`);
+    }
+  }
+
   try {
     const fileObj = await toFile(fileBuffer, originalname);
     const response = await openai.audio.transcriptions.create({
@@ -32,15 +64,9 @@ export const transcribeAudio = async (fileBuffer, originalname) => {
   }
 };
 
-/**
- * Generate friendly language tutor response with GPT-4o
- * @param {string} userText
- * @param {string} targetLanguage
- * @returns {Promise<{aiReply: string, translation: string, grammarScore: number, feedbackText: string}>}
- */
+
 export const generateTutorResponse = async (userText, targetLanguage = "English") => {
-  try {
-    const systemPrompt = `You are Lnaguage_Learning, a friendly, encouraging, and highly effective language tutor.
+  const systemPrompt = `You are Lnaguage_Learning, a friendly, encouraging, and highly effective language tutor.
 The user is learning ${targetLanguage} and just said: "${userText}".
 Provide a helpful tutor response.
 
@@ -54,6 +80,30 @@ You must respond with a JSON object strictly matching this schema:
 
 Do not include any markup, markdown tags, or explanatory text outside the JSON object. Output ONLY the JSON block.`;
 
+  if (googleApiKey && googleApiKey !== "dummy-key-for-now") {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`;
+      const response = await axios.post(url, {
+        contents: [{
+          parts: [{ text: systemPrompt }]
+        }],
+        generationConfig: {
+          responseMimeType: "application/json"
+        }
+      });
+
+      const content = response.data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!content) {
+        throw new Error("No response content returned from Gemini");
+      }
+      return JSON.parse(content);
+    } catch (error) {
+      console.error("❌ Gemini Tutor Response Error:", error.message);
+      throw new Error(`Google Gemini tutor response generation failed: ${error.message}`);
+    }
+  }
+
+  try {
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
@@ -72,16 +122,23 @@ Do not include any markup, markdown tags, or explanatory text outside the JSON o
   }
 };
 
-/**
- * Generate audio buffer from text using OpenAI TTS-1
- * @param {string} text
- * @returns {Promise<Buffer>} Audio buffer
- */
 export const textToSpeech = async (text) => {
+  if (!openaiApiKey || openaiApiKey === "dummy-key-for-now") {
+    try {
+      const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q=${encodeURIComponent(text)}`;
+      const response = await axios.get(url, { responseType: "arraybuffer" });
+      return Buffer.from(response.data);
+    } catch (error) {
+      console.error("❌ Google Translate TTS Error:", error.message);
+      throw new Error(`Google Translate speech synthesis failed: ${error.message}`);
+    }
+  }
+
+  // Otherwise, use OpenAI TTS
   try {
     const mp3Response = await openai.audio.speech.create({
       model: "tts-1",
-      voice: "alloy", // friendly tutor voice
+      voice: "alloy",
       input: text,
     });
     const buffer = Buffer.from(await mp3Response.arrayBuffer());
