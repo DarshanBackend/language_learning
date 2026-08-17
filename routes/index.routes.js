@@ -57,7 +57,9 @@ import {
   updateSubscriptionPlan,
   deleteSubscriptionPlan
 } from "../controller/subcriptionPlan.controller.js";
-import { LessonQuestionController } from "../controller/lessonQuestion.controller.js";
+import { JourneyController } from "../controller/journey.controller.js";
+import { TopicController } from "../controller/topic.controller.js";
+import { TopicChatController } from "../controller/topicChat.controller.js";
 
 const indexRouter = express.Router();
 
@@ -196,25 +198,59 @@ indexRouter.put("/admin/updateSubscriptionPlan/:id", UserAuth, adminAuth, update
 indexRouter.delete("/admin/deleteSubscriptionPlan/:id", UserAuth, adminAuth, deleteSubscriptionPlan);
 
 // ==========================================
-// 11. Lesson & Question Routes (Admin & User)
 // ==========================================
-// Admin Lesson CRUD
-indexRouter.post("/admin/createLesson", UserAuth, adminAuth, LessonQuestionController.createLesson);
-indexRouter.get("/admin/getAllLessonsAdmin", UserAuth, adminAuth, LessonQuestionController.getAllLessonsAdmin);
-indexRouter.put("/admin/updateLesson/:id", UserAuth, adminAuth, LessonQuestionController.updateLesson);
-indexRouter.delete("/admin/deleteLesson/:id", UserAuth, adminAuth, LessonQuestionController.deleteLesson);
+// 11. Journey, Lesson & Question Routes (Admin & User)
+// ==========================================
+// Admin JourneyTopic CRUD
+indexRouter.post("/admin/createJourneyTopic", UserAuth, adminAuth, JourneyController.createJourneyTopic);
+indexRouter.get("/admin/getAllJourneyTopicsAdmin", UserAuth, adminAuth, JourneyController.getAllJourneyTopicsAdmin);
+indexRouter.put("/admin/updateJourneyTopic/:id", UserAuth, adminAuth, JourneyController.updateJourneyTopic);
+indexRouter.delete("/admin/deleteJourneyTopic/:id", UserAuth, adminAuth, JourneyController.deleteJourneyTopic);
 
-// Admin Question CRUD (supports S3 image & audio uploads)
-indexRouter.post("/admin/createQuestion", UserAuth, adminAuth, upload.fields([{ name: "image", maxCount: 1 }, { name: "audio", maxCount: 1 },]), LessonQuestionController.createQuestion);
-indexRouter.put("/admin/updateQuestion/:id", UserAuth, adminAuth, upload.fields([{ name: "image", maxCount: 1 }, { name: "audio", maxCount: 1 },]), LessonQuestionController.updateQuestion);
-indexRouter.delete("/admin/deleteQuestion/:id", UserAuth, adminAuth, LessonQuestionController.deleteQuestion);
-indexRouter.get("/admin/getAllquestions", LessonQuestionController.getAllQuestions);
-indexRouter.get("/admin/getQuestionById/:id", LessonQuestionController.getQuestionById);
-indexRouter.get("/user/getQuestionById/:id", UserAuth, LessonQuestionController.getQuestionById);
+// Admin JourneyLesson CRUD
+indexRouter.post("/admin/createJourneyLesson", UserAuth, adminAuth, JourneyController.createJourneyLesson);
+indexRouter.get("/admin/getAllJourneyLessonsAdmin", UserAuth, JourneyController.getAllJourneyLessonsAdmin);
+indexRouter.put("/admin/updateJourneyLesson/:id", UserAuth, adminAuth, JourneyController.updateJourneyLesson);
+indexRouter.delete("/admin/deleteJourneyLesson/:id", UserAuth, adminAuth, JourneyController.deleteJourneyLesson);
+
+// Admin JourneyQuestion CRUD (supports S3 image & audio uploads)
+indexRouter.post("/admin/createJourneyQuestion", UserAuth, adminAuth, upload.fields([{ name: "image", maxCount: 1 }, { name: "audio", maxCount: 1 }]), JourneyController.createJourneyQuestion);
+indexRouter.get("/admin/getAllQuestions", UserAuth, JourneyController.getAllQuestions);
+indexRouter.get("/admin/getQuestionById/:id", UserAuth, adminAuth, JourneyController.getQuestionById);
+indexRouter.put("/admin/updateJourneyQuestion/:id", UserAuth, adminAuth, upload.fields([{ name: "image", maxCount: 1 }, { name: "audio", maxCount: 1 }]), JourneyController.updateJourneyQuestion);
+indexRouter.delete("/admin/deleteJourneyQuestion/:id", UserAuth, adminAuth, JourneyController.deleteJourneyQuestion);
+indexRouter.get("/admin/lessonsByTopic/:topicId", UserAuth, adminAuth, JourneyController.getLessonsByTopic);
+indexRouter.get("/admin/questionsByLesson/:lessonId", UserAuth, adminAuth, JourneyController.getQuestionsByLesson);
+indexRouter.get("/user/getQuestionById/:id", UserAuth, JourneyController.getQuestionById);
+
 
 // User Journey & Verification Routes
-indexRouter.get("/user/getUserJourney", UserAuth, LessonQuestionController.getUserJourney);
-indexRouter.post("/user/verifyUserSpeaking/:questionId", UserAuth, upload.single("audio"), LessonQuestionController.verifyUserSpeaking);
+indexRouter.get("/user/getUserJourney", UserAuth, JourneyController.getUserJourney);
+indexRouter.post("/user/verifyUserSpeaking/:questionId", UserAuth, upload.single("audio"), JourneyController.verifyUserSpeaking);
+indexRouter.post("/user/verifyJourneyQuestion/:questionId", UserAuth, JourneyController.verifyJourneyQuestion);
+indexRouter.get("/user/lessonsByTopic/:topicId", UserAuth, JourneyController.getLessonsByTopic);
+indexRouter.get("/user/questionsByLesson/:lessonId", UserAuth, JourneyController.getQuestionsByLesson);
+
+
+// Admin Topic CRUD
+indexRouter.post("/admin/createTopic", UserAuth, adminAuth, TopicController.createTopic);
+indexRouter.get("/admin/getAllTopicsAdmin", UserAuth, adminAuth, TopicController.getAllTopicsAdmin);
+indexRouter.put("/admin/updateTopic/:id", UserAuth, adminAuth, TopicController.updateTopic);
+indexRouter.delete("/admin/deleteTopic/:id", UserAuth, adminAuth, TopicController.deleteTopic);
+
+// User Topic Routes
+indexRouter.get("/user/getTopics", UserAuth, TopicController.getTopics);
+indexRouter.get("/user/getTopicDetails/:id", UserAuth, TopicController.getTopicDetails);
+indexRouter.post("/user/recordCompletedTask", UserAuth, TopicController.recordCompletedTask);
+
+indexRouter.post("/user/topic/:topicId/chat/start", UserAuth, TopicChatController.startTopicChat);
+indexRouter.post(
+  "/user/topic/:topicId/chat/message",
+  UserAuth,
+  upload.single("audio"),
+  TopicChatController.sendMessage
+);
+indexRouter.get("/user/topic/:topicId/chat/history", UserAuth, TopicChatController.getChatHistory);
 
 indexRouter.get("/list", async (req, res) => {
   try {

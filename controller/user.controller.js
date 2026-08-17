@@ -212,10 +212,12 @@ export const getAnalytics = async (req, res) => {
 export const recordCompletedLesson = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { lessonId, status = "completed", score = 0 } = req.body;
+    const { journeyLessonId, lessonId, status = "completed", score = 0 } = req.body;
 
-    if (!lessonId) {
-      return res.status(400).json({ success: false, message: "Lesson ID is required" });
+    const targetLessonId = journeyLessonId || lessonId;
+
+    if (!targetLessonId) {
+      return res.status(400).json({ success: false, message: "Journey Lesson ID is required" });  
     }
 
     let analytics = await AnalyticsModel.findOne({ userId });
@@ -224,7 +226,7 @@ export const recordCompletedLesson = async (req, res) => {
     }
 
     // Add completed lesson
-    analytics.completedLessons.push({ lessonId, status, score });
+    analytics.completedLessons.push({ journeyLessonId: targetLessonId, status, score });
 
     // Smoothly adjust trend scores
     analytics.listeningTrendScore = Math.min(

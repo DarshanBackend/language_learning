@@ -1,11 +1,11 @@
 import mongoose from "mongoose";
 
-const QuestionSchema = new mongoose.Schema(
+const JourneyQuestionSchema = new mongoose.Schema(
   {
-    lessonId: {
+    journeyLessonId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Lesson",
-      required: [true, "Lesson ID is required"],
+      ref: "JourneyLesson",
+      required: [true, "Journey Lesson ID is required"],
     },
     type: {
       type: String,
@@ -14,8 +14,8 @@ const QuestionSchema = new mongoose.Schema(
     },
     text: {
       type: String,
-      required: [true, "Question text or prompt is required"],
       trim: true,
+      default: "",
     },
     translation: {
       type: String,
@@ -28,8 +28,8 @@ const QuestionSchema = new mongoose.Schema(
     },
     rightAnswer: {
       type: String,
-      required: [true, "Right answer is required"],
       trim: true,
+      default: "",
     },
     image: {
       type: String,
@@ -43,9 +43,19 @@ const QuestionSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    translations: {
+      type: Map,
+      of: new mongoose.Schema({
+        text: String,
+        rightAnswer: String,
+        options: [String],
+        audio: String,
+      }, { _id: false }),
+      default: {},
+    },
   },
   { timestamps: true }
 );
 
-const QuestionModel = mongoose.model("Question", QuestionSchema);
-export default QuestionModel;
+const JourneyQuestionModel = mongoose.model("JourneyQuestion", JourneyQuestionSchema);
+export default JourneyQuestionModel;

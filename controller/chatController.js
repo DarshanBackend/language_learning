@@ -85,7 +85,7 @@ export const handleVoiceMessage = async (req, res) => {
         userAudioUrl = userAudioUpload.url;
 
         // Transcribe voice to text
-        userText = await transcribeAudio(req.file.buffer, req.file.originalname);
+        userText = await transcribeAudio(req.file.buffer, req.file.originalname, req.file.mimetype);
       } catch (err) {
         return res.status(400).json({
           success: false,

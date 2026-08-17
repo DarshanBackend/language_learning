@@ -43,7 +43,7 @@ connectDB(DB_URL);
 
 // Home route
 app.get("/", async (req, res) => {
-  return res.send("<h1>Lnaguage_Learning AI Voice Tutor API is working!</h1>");
+  return res.send("<h1>Language_Learning AI Voice Tutor API is working!</h1>");
 });
 
 // Health check endpoint
@@ -74,5 +74,5 @@ registerLiveSpeakingSocket(io);
 // Server startup
 const PORT = process.env.PORT || 9000;
 httpServer.listen(PORT, () => {
-  console.log(`✅ Lnaguage_Learning Server is running on port : ${PORT}`);
+  console.log(`✅ Language_Learning Server is running on port : ${PORT}`);
 });

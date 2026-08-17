@@ -1,9 +1,9 @@
 import mongoose from "mongoose";
 
 const CompletedLessonSchema = new mongoose.Schema({
-  lessonId: {
+  journeyLessonId: {
     type: String,
-    required: [true, "Lesson ID is required"],
+    required: [true, "Journey Lesson ID is required"],
   },
   status: {
     type: String,
@@ -15,6 +15,26 @@ const CompletedLessonSchema = new mongoose.Schema({
     default: 0,
     min: 0,
     max: 100,
+  },
+  completedAt: {
+    type: Date,
+    default: Date.now,
+  },
+});
+
+const CompletedTopicSchema = new mongoose.Schema({
+  topicId: {
+    type: String,
+    required: [true, "Topic ID is required"],
+  },
+  completedTasksCount: {
+    type: Number,
+    default: 0,
+  },
+  status: {
+    type: String,
+    enum: ["started", "completed"],
+    default: "started",
   },
   completedAt: {
     type: Date,
@@ -48,6 +68,7 @@ const AnalyticsSchema = new mongoose.Schema({
     max: 100,
   },
   completedLessons: [CompletedLessonSchema],
+  completedTopics: [CompletedTopicSchema],
 }, { timestamps: true });
 
 const AnalyticsModel = mongoose.model("Analytics", AnalyticsSchema);
