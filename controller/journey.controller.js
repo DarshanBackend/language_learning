@@ -980,6 +980,80 @@ export class JourneyController {
     return lessonData;
   }
 
+  static async syncTopicCompletion(analytics, journeyLessonId) {
+    try {
+      const lesson = await JourneyLessonModel.findById(journeyLessonId);
+      if (!lesson) return;
+
+      const completedLessonIds = analytics.completedLessons
+        .filter((cl) => cl.status === "completed")
+        .map((cl) => (cl.journeyLessonId || cl.lessonId)?.toString());
+
+      // Ensure the current lesson is counted as completed
+      const lessonIdStr = journeyLessonId.toString();
+      if (!completedLessonIds.includes(lessonIdStr)) {
+        completedLessonIds.push(lessonIdStr);
+      }
+
+      // 1. If this lesson belongs to a JourneyTopic, check if all lessons in that JourneyTopic are completed
+      if (lesson.journeyTopicId) {
+        const journeyTopicIdStr = lesson.journeyTopicId.toString();
+        const allLessons = await JourneyLessonModel.find({ journeyTopicId: lesson.journeyTopicId });
+        const allLessonIds = allLessons.map((l) => l._id.toString());
+
+        const allCompleted = allLessonIds.every((id) => completedLessonIds.includes(id));
+        if (allCompleted) {
+          const topicRecord = analytics.completedTopics.find((ct) => ct.topicId === journeyTopicIdStr);
+          if (!topicRecord) {
+            analytics.completedTopics.push({
+              topicId: journeyTopicIdStr,
+              completedTasksCount: allLessons.length,
+              status: "completed",
+              completedAt: new Date(),
+            });
+          } else {
+            topicRecord.completedTasksCount = allLessons.length;
+            topicRecord.status = "completed";
+            topicRecord.completedAt = new Date();
+          }
+        } else {
+          const completedCount = allLessonIds.filter((id) => completedLessonIds.includes(id)).length;
+          const topicRecord = analytics.completedTopics.find((ct) => ct.topicId === journeyTopicIdStr);
+          if (!topicRecord) {
+            analytics.completedTopics.push({
+              topicId: journeyTopicIdStr,
+              completedTasksCount: completedCount,
+              status: "started",
+            });
+          } else if (topicRecord.status !== "completed") {
+            topicRecord.completedTasksCount = completedCount;
+          }
+        }
+      }
+
+      // 2. If there is a standalone Topic linked to this lesson, mark it as completed
+      const standaloneTopic = await TopicModel.findOne({ journeyLessonId });
+      if (standaloneTopic) {
+        const topicIdStr = standaloneTopic._id.toString();
+        const topicRecord = analytics.completedTopics.find((ct) => ct.topicId === topicIdStr);
+        if (!topicRecord) {
+          analytics.completedTopics.push({
+            topicId: topicIdStr,
+            completedTasksCount: 1,
+            status: "completed",
+            completedAt: new Date(),
+          });
+        } else {
+          topicRecord.completedTasksCount = 1;
+          topicRecord.status = "completed";
+          topicRecord.completedAt = new Date();
+        }
+      }
+    } catch (err) {
+      console.warn("⚠️ syncTopicCompletion failed:", err.message);
+    }
+  }
+
   static async getAllQuestions(req, res) {
     try {
       const questions = await JourneyQuestionModel.find({ isDeleted: false }).populate("journeyLessonId");
@@ -1134,8 +1208,17 @@ export class JourneyController {
           };
         });
 
+        const totalLessons = lessonsData.length;
+        const completedLessonsCount = lessonsData.filter((l) => l.isCompleted).length;
+        const isTopicCompleted = totalLessons > 0 && completedLessonsCount === totalLessons;
+        const progressPercent = totalLessons > 0 ? Math.round((completedLessonsCount / totalLessons) * 100) : 0;
+
         journey.push({
           ...topicData,
+          isCompleted: isTopicCompleted,
+          totalLessonsCount: totalLessons,
+          completedLessonsCount,
+          progressPercent,
           points: pointsWithStatus,
           lessons: lessonsData,
         });
@@ -1369,6 +1452,7 @@ export class JourneyController {
             Math.round(analytics.vocabularyTrendScore * 0.92 + 8)
           );
 
+          await JourneyController.syncTopicCompletion(analytics, question.journeyLessonId);
           await analytics.save();
         }
       }
@@ -1455,6 +1539,7 @@ export class JourneyController {
             Math.round(analytics.vocabularyTrendScore * 0.92 + 8)
           );
 
+          await JourneyController.syncTopicCompletion(analytics, question.journeyLessonId);
           await analytics.save();
         }
       }

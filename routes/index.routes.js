@@ -203,7 +203,7 @@ indexRouter.delete("/admin/deleteSubscriptionPlan/:id", UserAuth, adminAuth, del
 // ==========================================
 // Admin JourneyTopic CRUD
 indexRouter.post("/admin/createJourneyTopic", UserAuth, adminAuth, JourneyController.createJourneyTopic);
-indexRouter.get("/admin/getAllJourneyTopicsAdmin", UserAuth, adminAuth, JourneyController.getAllJourneyTopicsAdmin);
+indexRouter.get("/admin/getAllJourneyTopicsAdmin", UserAuth, JourneyController.getAllJourneyTopicsAdmin);
 indexRouter.put("/admin/updateJourneyTopic/:id", UserAuth, adminAuth, JourneyController.updateJourneyTopic);
 indexRouter.delete("/admin/deleteJourneyTopic/:id", UserAuth, adminAuth, JourneyController.deleteJourneyTopic);
 
@@ -219,8 +219,8 @@ indexRouter.get("/admin/getAllQuestions", UserAuth, JourneyController.getAllQues
 indexRouter.get("/admin/getQuestionById/:id", UserAuth, adminAuth, JourneyController.getQuestionById);
 indexRouter.put("/admin/updateJourneyQuestion/:id", UserAuth, adminAuth, upload.fields([{ name: "image", maxCount: 1 }, { name: "audio", maxCount: 1 }]), JourneyController.updateJourneyQuestion);
 indexRouter.delete("/admin/deleteJourneyQuestion/:id", UserAuth, adminAuth, JourneyController.deleteJourneyQuestion);
-indexRouter.get("/admin/lessonsByTopic/:topicId", UserAuth, adminAuth, JourneyController.getLessonsByTopic);
-indexRouter.get("/admin/questionsByLesson/:lessonId", UserAuth, adminAuth, JourneyController.getQuestionsByLesson);
+indexRouter.get("/admin/lessonsByTopic/:topicId", UserAuth, JourneyController.getLessonsByTopic);
+indexRouter.get("/admin/questionsByLesson/:lessonId", UserAuth, JourneyController.getQuestionsByLesson);
 indexRouter.get("/user/getQuestionById/:id", UserAuth, JourneyController.getQuestionById);
 
 

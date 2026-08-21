@@ -3,6 +3,7 @@ import UserSettingsModel from "../model/userSettings.model.js";
 import AnalyticsModel from "../model/analytics.model.js";
 import ChatSessionModel from "../model/chatSession.model.js";
 import { uploadFile, deleteFileFromS3 } from "../middleware/imageupload.js";
+import { JourneyController } from "./journey.controller.js";
 
 /**
  * Get logged-in user profile
@@ -217,7 +218,7 @@ export const recordCompletedLesson = async (req, res) => {
     const targetLessonId = journeyLessonId || lessonId;
 
     if (!targetLessonId) {
-      return res.status(400).json({ success: false, message: "Journey Lesson ID is required" });  
+      return res.status(400).json({ success: false, message: "Journey Lesson ID is required" });
     }
 
     let analytics = await AnalyticsModel.findOne({ userId });
@@ -227,6 +228,10 @@ export const recordCompletedLesson = async (req, res) => {
 
     // Add completed lesson
     analytics.completedLessons.push({ journeyLessonId: targetLessonId, status, score });
+
+    if (status === "completed") {
+      await JourneyController.syncTopicCompletion(analytics, targetLessonId);
+    }
 
     // Smoothly adjust trend scores
     analytics.listeningTrendScore = Math.min(
