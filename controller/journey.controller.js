@@ -203,6 +203,12 @@ export class JourneyController {
         return sendBadRequestResponse(res, `A journey lesson with the title "${title.trim()}" already exists.`);
       }
 
+      let imageUrl = "";
+      if (req.file) {
+        const uploadResult = await uploadFile(req.file);
+        imageUrl = uploadResult.url;
+      }
+
       const translations = {};
 
       // Fetch all target languages
@@ -232,6 +238,7 @@ export class JourneyController {
         languageToLearn: "english",
         category: category.trim(),
         lessonNumber: lessonNumber !== undefined ? Number(lessonNumber) : 0,
+        image: imageUrl,
         translations,
       });
 
@@ -314,6 +321,30 @@ export class JourneyController {
         }
       }
 
+      let imageUrl = lesson.image;
+      if (req.file) {
+        const uploadResult = await uploadFile(req.file);
+        imageUrl = uploadResult.url;
+
+        // delete old image if it exists
+        if (lesson.image) {
+          try {
+            await deleteFileFromS3(lesson.image);
+          } catch (err) {
+            console.warn("⚠️ Failed to delete old lesson image:", err.message);
+          }
+        }
+      } else if (req.body.image === "" || req.body.image === "null" || req.body.image === null) {
+        imageUrl = "";
+        if (lesson.image) {
+          try {
+            await deleteFileFromS3(lesson.image);
+          } catch (err) {
+            console.warn("⚠️ Failed to delete old lesson image:", err.message);
+          }
+        }
+      }
+
       const updateData = {};
       if (journeyTopicId !== undefined) updateData.journeyTopicId = journeyTopicId || null;
       if (title !== undefined) updateData.title = title.trim();
@@ -321,6 +352,7 @@ export class JourneyController {
       if (languageToLearn !== undefined) updateData.languageToLearn = languageToLearn.trim();
       if (category !== undefined) updateData.category = category.trim();
       if (lessonNumber !== undefined) updateData.lessonNumber = Number(lessonNumber);
+      if (req.file || req.body.image !== undefined) updateData.image = imageUrl;
 
       const updated = await JourneyLessonModel.findByIdAndUpdate(id, updateData, { new: true });
       return sendSuccessResponse(res, "Journey lesson updated successfully", updated);
@@ -350,6 +382,16 @@ export class JourneyController {
       }
 
       await JourneyQuestionModel.deleteMany({ journeyLessonId: id });
+
+      // Delete lesson image if exists
+      if (lesson.image) {
+        try {
+          await deleteFileFromS3(lesson.image);
+        } catch (err) {
+          console.warn("⚠️ Failed to delete lesson image:", err.message);
+        }
+      }
+
       await JourneyLessonModel.findByIdAndDelete(id);
 
       return sendSuccessResponse(res, "Journey lesson and associated questions deleted successfully");

@@ -197,7 +197,7 @@ indexRouter.get("/getSubscriptionPlanById/:id", getSubscriptionPlanById);
 indexRouter.put("/admin/updateSubscriptionPlan/:id", UserAuth, adminAuth, updateSubscriptionPlan);
 indexRouter.delete("/admin/deleteSubscriptionPlan/:id", UserAuth, adminAuth, deleteSubscriptionPlan);
 
-// ==========================================
+// ==========================================updateLesson
 // ==========================================
 // 11. Journey, Lesson & Question Routes (Admin & User)
 // ==========================================
@@ -208,9 +208,9 @@ indexRouter.put("/admin/updateJourneyTopic/:id", UserAuth, adminAuth, JourneyCon
 indexRouter.delete("/admin/deleteJourneyTopic/:id", UserAuth, adminAuth, JourneyController.deleteJourneyTopic);
 
 // Admin JourneyLesson CRUD
-indexRouter.post("/admin/createJourneyLesson", UserAuth, adminAuth, JourneyController.createJourneyLesson);
+indexRouter.post("/admin/createJourneyLesson", UserAuth, adminAuth, upload.single("image"), JourneyController.createJourneyLesson);
 indexRouter.get("/admin/getAllJourneyLessonsAdmin", UserAuth, JourneyController.getAllJourneyLessonsAdmin);
-indexRouter.put("/admin/updateJourneyLesson/:id", UserAuth, adminAuth, JourneyController.updateJourneyLesson);
+indexRouter.put("/admin/updateJourneyLesson/:id", UserAuth, adminAuth, upload.single("image"), JourneyController.updateJourneyLesson);
 indexRouter.delete("/admin/deleteJourneyLesson/:id", UserAuth, adminAuth, JourneyController.deleteJourneyLesson);
 
 // Admin JourneyQuestion CRUD (supports S3 image & audio uploads)

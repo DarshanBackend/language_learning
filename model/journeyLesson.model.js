@@ -31,6 +31,10 @@ const JourneyLessonSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    image: {
+      type: String,
+      default: "",
+    },
     translations: {
       type: Map,
       of: new mongoose.Schema({
