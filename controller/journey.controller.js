@@ -1406,11 +1406,10 @@ export class JourneyController {
       let transcribedText = "";
 
       try {
-        const hasBardKey = process.env.BARD_API && process.env.BARD_API !== "dummy-key-for-now";
         const hasGeminiKey = process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== "dummy-key-for-now";
 
-        if (!hasBardKey && !hasGeminiKey) {
-          console.warn("⚠️ Bard/Gemini API key not configured, simulating transcription matching correct answer.");
+        if (!hasGeminiKey) {
+          console.warn("⚠️ Gemini API key not configured, simulating transcription matching correct answer.");
           transcribedText = targetText;
         } else {
           transcribedText = await transcribeAudio(req.file.buffer, req.file.originalname, req.file.mimetype);

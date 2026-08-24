@@ -4,7 +4,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const openaiApiKey = process.env.OPENAI_API_KEY;
-const googleApiKey = process.env.BARD_API || process.env.GEMINI_API_KEY;
+const googleApiKey = process.env.GEMINI_API_KEY;
 
 // Initialize OpenAI client
 const openai = new OpenAI({
