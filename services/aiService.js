@@ -40,7 +40,7 @@ export const transcribeAudio = async (fileBuffer, originalname, fileMimeType = n
         mimeType = "audio/aac";
       }
 
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${googleApiKey}`;
       const response = await axios.post(url, {
         contents: [{
           parts: [
@@ -103,7 +103,7 @@ Do not include any markup, markdown tags, or explanatory text outside the JSON o
 
   if (googleApiKey && googleApiKey !== "dummy-key-for-now") {
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${googleApiKey}`;
       const response = await axios.post(url, {
         contents: [{
           parts: [{ text: systemPrompt }]
@@ -214,7 +214,7 @@ Do not include markdown or any text outside the JSON object. Output ONLY the JSO
 
   if (googleApiKey && googleApiKey !== "dummy-key-for-now") {
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${googleApiKey}`;
       const response = await axios.post(url, {
         contents: [{ parts: [{ text: systemPrompt }] }],
         generationConfig: { responseMimeType: "application/json" },
@@ -290,7 +290,7 @@ Text to translate: "${text}"`;
 
   if (googleApiKey && googleApiKey !== "dummy-key-for-now" && !googleApiKey.startsWith("g.a000")) {
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${googleApiKey}`;
       const response = await axios.post(url, {
         contents: [{ parts: [{ text: systemPrompt }] }]
       });

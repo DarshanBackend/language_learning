@@ -1416,8 +1416,8 @@ export class JourneyController {
           transcribedText = await transcribeAudio(req.file.buffer, req.file.originalname, req.file.mimetype);
         }
       } catch (err) {
-        console.warn("⚠️ Transcription failed, falling back to simulated success:", err.message);
-        transcribedText = targetText;
+        console.error("❌ Audio transcription failed:", err.message);
+        return sendErrorResponse(res, 500, `Audio transcription failed: ${err.message}`, err);
       }
 
       if (!transcribedText || !transcribedText.trim()) {
