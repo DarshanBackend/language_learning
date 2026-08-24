@@ -102,9 +102,21 @@ export const handleVoiceMessage = async (req, res) => {
       });
     }
 
-    // 2. Send transcription/text to GPT-4o for tutoring response
-    const tutorResponse = await generateTutorResponse(userText, targetLanguage);
-    const { aiReply, translation, grammarScore, feedbackText } = tutorResponse;
+    // 2. Send transcription/text to Gemini for tutoring response
+    const tutorResponse = await generateTutorResponse(
+      userText,
+      targetLanguage,
+      req.file ? req.file.buffer : null,
+      req.file ? req.file.mimetype : null
+    );
+    const { 
+      aiReply, 
+      translation, 
+      grammarScore, 
+      feedbackText, 
+      pronunciationScore, 
+      pronunciationFeedback 
+    } = tutorResponse;
 
     // 3. Generate voice audio for the tutor response via TTS
     let tutorAudioUrl = null;
@@ -147,7 +159,9 @@ export const handleVoiceMessage = async (req, res) => {
       audioUrl: tutorAudioUrl,
       translation,
       grammarScore,
-      pronunciationScore: req.file ? Math.round(grammarScore * 0.95) : null, // estimated voice score
+      feedbackText,
+      pronunciationScore: req.file ? (pronunciationScore !== undefined ? pronunciationScore : Math.round(grammarScore * 0.95)) : null,
+      pronunciationFeedback: req.file ? (pronunciationFeedback !== undefined ? pronunciationFeedback : "Good pronunciation!") : null,
     });
 
     await chatSession.save();
@@ -164,6 +178,8 @@ export const handleVoiceMessage = async (req, res) => {
         translation,
         grammarScore,
         feedbackText,
+        pronunciationScore: req.file ? (pronunciationScore !== undefined ? pronunciationScore : Math.round(grammarScore * 0.95)) : null,
+        pronunciationFeedback: req.file ? (pronunciationFeedback !== undefined ? pronunciationFeedback : "Good pronunciation!") : null,
         streakDays: updatedStreak,
         chatSession,
       },

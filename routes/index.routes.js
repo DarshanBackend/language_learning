@@ -228,6 +228,7 @@ indexRouter.get("/user/getQuestionById/:id", UserAuth, JourneyController.getQues
 indexRouter.get("/user/getUserJourney", UserAuth, JourneyController.getUserJourney);
 indexRouter.post("/user/verifyUserSpeaking/:questionId", UserAuth, upload.single("audio"), JourneyController.verifyUserSpeaking);
 indexRouter.post("/user/verifyJourneyQuestion/:questionId", UserAuth, JourneyController.verifyJourneyQuestion);
+indexRouter.post("/user/resetLessonCompletion/:lessonId", UserAuth, JourneyController.resetLessonCompletion);
 indexRouter.get("/user/lessonsByTopic/:topicId", UserAuth, JourneyController.getLessonsByTopic);
 indexRouter.get("/user/questionsByLesson/:lessonId", UserAuth, JourneyController.getQuestionsByLesson);
 

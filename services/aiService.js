@@ -86,28 +86,47 @@ export const transcribeAudio = async (fileBuffer, originalname, fileMimeType = n
 };
 
 
-export const generateTutorResponse = async (userText, targetLanguage = "English") => {
-  const systemPrompt = `You are Lnaguage_Learning, a friendly, encouraging, and highly effective language tutor.
+export const generateTutorResponse = async (userText, targetLanguage = "English", audioBuffer = null, audioMimeType = null) => {
+  let schemaPrompt = `{
+  "aiReply": "A warm, natural, conversational response in ${targetLanguage} answering the user, kept brief (max 2-3 sentences).",
+  "translation": "The English translation of your aiReply.",
+  "grammarScore": 85, // An integer score between 0 and 100 representing the grammatical correctness of what the user said: "${userText}". If the user text is brief or conversational (e.g. "Hello", "How are you?"), give a high score if correct.
+  "feedbackText": "Specific grammar correction or suggestions in English. If they made no errors, praise their formulation or suggest an alternative, more advanced vocabulary word."`;
+
+  if (audioBuffer) {
+    schemaPrompt += `,
+  "pronunciationScore": 80, // An integer score between 0 and 100 representing the pronunciation clarity of the user's speech in the provided audio file.
+  "pronunciationFeedback": "Specific feedback in English about their pronunciation, highlighting clear words or words they need to practice."`;
+  }
+
+  schemaPrompt += `\n}`;
+
+  const systemPrompt = `You are Language_Learning, a friendly, encouraging, and highly effective language tutor.
 The user is learning ${targetLanguage} and just said: "${userText}".
 Provide a helpful tutor response.
 
 You must respond with a JSON object strictly matching this schema:
-{
-  "aiReply": "A warm, natural, conversational response in ${targetLanguage} answering the user, kept brief (max 2-3 sentences).",
-  "translation": "The English translation of your aiReply.",
-  "grammarScore": 85, // An integer score between 0 and 100 representing the grammatical correctness of what the user said: "${userText}". If the user text is brief or conversational (e.g. "Hello", "How are you?"), give a high score if correct.
-  "feedbackText": "Specific grammar correction or suggestions in English. If they made no errors, praise their formulation or suggest an alternative, more advanced vocabulary word."
-}
+${schemaPrompt}
 
 Do not include any markup, markdown tags, or explanatory text outside the JSON object. Output ONLY the JSON block.`;
 
   if (googleApiKey && googleApiKey !== "dummy-key-for-now") {
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${googleApiKey}`;
+      
+      const parts = [];
+      if (audioBuffer && audioMimeType) {
+        parts.push({
+          inlineData: {
+            mimeType: audioMimeType,
+            data: audioBuffer.toString("base64")
+          }
+        });
+      }
+      parts.push({ text: systemPrompt });
+
       const response = await axios.post(url, {
-        contents: [{
-          parts: [{ text: systemPrompt }]
-        }],
+        contents: [{ parts }],
         generationConfig: {
           responseMimeType: "application/json"
         }
@@ -136,7 +155,12 @@ Do not include any markup, markdown tags, or explanatory text outside the JSON o
     });
 
     const content = response.choices[0].message.content;
-    return JSON.parse(content);
+    const parsed = JSON.parse(content);
+    if (audioBuffer && parsed.pronunciationScore === undefined) {
+      parsed.pronunciationScore = 90;
+      parsed.pronunciationFeedback = "Good pronunciation!";
+    }
+    return parsed;
   } catch (error) {
     console.error("❌ GPT Tutor Response Error:", error.message);
     throw new Error(`AI Tutor response generation failed: ${error.message}`);

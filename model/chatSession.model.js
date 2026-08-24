@@ -28,10 +28,18 @@ const MessageSchema = new mongoose.Schema({
     max: 100,
     default: null,
   },
+  feedbackText: {
+    type: String,
+    default: null,
+  },
   pronunciationScore: {
     type: Number,
     min: 0,
     max: 100,
+    default: null,
+  },
+  pronunciationFeedback: {
+    type: String,
     default: null,
   },
   createdAt: {

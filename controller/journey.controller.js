@@ -1596,5 +1596,35 @@ export class JourneyController {
     }
   }
 
+  /**
+   * Reset completion status of a lesson for testing purposes
+   */
+  static async resetLessonCompletion(req, res) {
+    try {
+      const { lessonId } = req.params;
+      const userId = req.user._id;
+
+      if (!mongoose.Types.ObjectId.isValid(lessonId)) {
+        return sendBadRequestResponse(res, "Invalid Lesson ID");
+      }
+
+      let analytics = await AnalyticsModel.findOne({ userId });
+      if (analytics) {
+        const initialLength = analytics.completedLessons.length;
+        analytics.completedLessons = analytics.completedLessons.filter(
+          (cl) => (cl.journeyLessonId || cl.lessonId)?.toString() !== lessonId.toString()
+        );
+
+        if (analytics.completedLessons.length !== initialLength) {
+          await analytics.save();
+          return sendSuccessResponse(res, "Lesson completion status reset to not completed successfully.");
+        }
+      }
+
+      return sendSuccessResponse(res, "Lesson was not marked as completed anyway.");
+    } catch (error) {
+      return sendErrorResponse(res, 500, error.message, error);
+    }
+  }
 
 }
