@@ -6,20 +6,17 @@ dotenv.config();
 const openaiApiKey = process.env.OPENAI_API_KEY;
 const googleApiKey = process.env.GEMINI_API_KEY;
 
-// Initialize OpenAI client
 const openai = new OpenAI({
   apiKey: openaiApiKey || "dummy-key-for-now",
 });
-
 
 export const transcribeAudio = async (fileBuffer, originalname, fileMimeType = null) => {
   if (googleApiKey && googleApiKey !== "dummy-key-for-now") {
     try {
       let mimeType = fileMimeType;
 
-      // If mimeType is not provided, or is generic, resolve from file extension
       if (!mimeType || mimeType === "application/octet-stream" || mimeType === "blob") {
-        mimeType = "audio/mpeg"; // standard default
+        mimeType = "audio/mpeg";
         const ext = originalname.substring(originalname.lastIndexOf(".")).toLowerCase();
         if (ext === ".wav") mimeType = "audio/wav";
         else if (ext === ".m4a") mimeType = "audio/m4a";
@@ -29,7 +26,6 @@ export const transcribeAudio = async (fileBuffer, originalname, fileMimeType = n
         else if (ext === ".mp3") mimeType = "audio/mpeg";
       }
 
-      // Normalize common MIME type aliases for Gemini support
       if (mimeType === "audio/mp3") {
         mimeType = "audio/mpeg";
       } else if (mimeType === "audio/x-m4a") {
@@ -63,9 +59,9 @@ export const transcribeAudio = async (fileBuffer, originalname, fileMimeType = n
       }
       return text.trim();
     } catch (error) {
-      console.error("❌ Gemini Transcription Error:", error.message);
+      console.error("Gemini Transcription Error:", error.message);
       if (error.response?.data) {
-        console.error("❌ Gemini Transcription Error Details:", JSON.stringify(error.response.data, null, 2));
+        console.error("Gemini Transcription Error Details:", JSON.stringify(error.response.data, null, 2));
       }
       throw new Error(`Google Speech-to-Text transcription failed: ${error.message}`);
     }
@@ -80,29 +76,37 @@ export const transcribeAudio = async (fileBuffer, originalname, fileMimeType = n
 
     return response.text;
   } catch (error) {
-    console.error("❌ Whisper Transcription Error:", error.message);
+    console.error("Whisper Transcription Error:", error.message);
     throw new Error(`Speech-to-Text translation failed: ${error.message}`);
   }
 };
 
-
-export const generateTutorResponse = async (userText, targetLanguage = "English", audioBuffer = null, audioMimeType = null) => {
+export const generateTutorResponse = async (userText, targetLanguage = "English", nativeLanguage = "Spanish", conversationHistory = [], audioBuffer = null, audioMimeType = null) => {
   let schemaPrompt = `{
   "aiReply": "A warm, natural, conversational response in ${targetLanguage} answering the user, kept brief (max 2-3 sentences).",
-  "translation": "The English translation of your aiReply.",
-  "grammarScore": 85, // An integer score between 0 and 100 representing the grammatical correctness of what the user said: "${userText}". If the user text is brief or conversational (e.g. "Hello", "How are you?"), give a high score if correct.
-  "feedbackText": "Specific grammar correction or suggestions in English. If they made no errors, praise their formulation or suggest an alternative, more advanced vocabulary word."`;
+  "translation": "The direct translation of your aiReply in ${nativeLanguage}.",
+  "grammarScore": 85,
+  "feedbackText": "Specific grammar correction or suggestions in ${nativeLanguage}. If they made no errors, praise their formulation or suggest an alternative, more advanced vocabulary word in ${targetLanguage}."`;
 
   if (audioBuffer) {
     schemaPrompt += `,
-  "pronunciationScore": 80, // An integer score between 0 and 100 representing the pronunciation clarity of the user's speech in the provided audio file.
-  "pronunciationFeedback": "Specific feedback in English about their pronunciation, highlighting clear words or words they need to practice."`;
+  "pronunciationScore": 80,
+  "pronunciationFeedback": "Specific feedback in ${nativeLanguage} about their pronunciation, highlighting clear words or words they need to practice."`;
   }
 
   schemaPrompt += `\n}`;
 
+  const historyText = conversationHistory
+    .map((m) => `${m.sender === "tutor" || m.role === "ai" ? "Tutor" : "Student"}: ${m.text}`)
+    .join("\n");
+
   const systemPrompt = `You are Language_Learning, a friendly, encouraging, and highly effective language tutor.
-The user is learning ${targetLanguage} and just said: "${userText}".
+The user is learning ${targetLanguage} and their native language is ${nativeLanguage}.
+
+Conversation history so far:
+${historyText || "(This is the start of the conversation.)"}
+
+The student just said: "${userText}".
 Provide a helpful tutor response.
 
 You must respond with a JSON object strictly matching this schema:
@@ -138,7 +142,7 @@ Do not include any markup, markdown tags, or explanatory text outside the JSON o
       }
       return JSON.parse(content);
     } catch (error) {
-      console.error("❌ Gemini Tutor Response Error:", error.message);
+      console.error("Gemini Tutor Response Error:", error.message);
       throw new Error(`Google Gemini tutor response generation failed: ${error.message}`);
     }
   }
@@ -162,7 +166,7 @@ Do not include any markup, markdown tags, or explanatory text outside the JSON o
     }
     return parsed;
   } catch (error) {
-    console.error("❌ GPT Tutor Response Error:", error.message);
+    console.error("GPT Tutor Response Error:", error.message);
     throw new Error(`AI Tutor response generation failed: ${error.message}`);
   }
 };
@@ -174,12 +178,11 @@ export const textToSpeech = async (text) => {
       const response = await axios.get(url, { responseType: "arraybuffer" });
       return Buffer.from(response.data);
     } catch (error) {
-      console.error("❌ Google Translate TTS Error:", error.message);
+      console.error("Google Translate TTS Error:", error.message);
       throw new Error(`Google Translate speech synthesis failed: ${error.message}`);
     }
   }
 
-  // Otherwise, use OpenAI TTS
   try {
     const mp3Response = await openai.audio.speech.create({
       model: "tts-1",
@@ -189,23 +192,16 @@ export const textToSpeech = async (text) => {
     const buffer = Buffer.from(await mp3Response.arrayBuffer());
     return buffer;
   } catch (error) {
-    console.error("❌ Text-to-Speech Error:", error.message);
+    console.error("Text-to-Speech Error:", error.message);
     throw new Error(`Speech synthesis failed: ${error.message}`);
   }
 };
 
-
-/**
- * Add this function to your existing services/aiService.js
- * (same file that has transcribeAudio, generateTutorResponse, textToSpeech).
- * Uses the same Gemini-first / OpenAI-fallback pattern as generateTutorResponse.
- */
-
 export const generateTaskChatResponse = async ({
   topicTitle,
   topicDescription,
-  currentTask, // { title, description }
-  conversationHistory, // [{ role: "ai"|"user", text }]
+  currentTask,
+  conversationHistory,
   userText,
   targetLanguage = "English",
 }) => {
@@ -248,7 +244,7 @@ Do not include markdown or any text outside the JSON object. Output ONLY the JSO
       if (!content) throw new Error("No response content returned from Gemini");
       return JSON.parse(content);
     } catch (error) {
-      console.error("❌ Gemini Task Chat Error:", error.message);
+      console.error("Gemini Task Chat Error:", error.message);
       throw new Error(`Google Gemini task chat generation failed: ${error.message}`);
     }
   }
@@ -267,7 +263,7 @@ Do not include markdown or any text outside the JSON object. Output ONLY the JSO
     const content = response.choices[0].message.content;
     return JSON.parse(content);
   } catch (error) {
-    console.error("❌ GPT Task Chat Error:", error.message);
+    console.error("GPT Task Chat Error:", error.message);
     throw new Error(`AI task chat generation failed: ${error.message}`);
   }
 };
@@ -275,7 +271,6 @@ Do not include markdown or any text outside the JSON object. Output ONLY the JSO
 export const translateText = async (text, targetLanguage) => {
   if (!text || !text.trim()) return "";
 
-  // 1. Try Free Google Translate API first for robust, keyless translations
   try {
     const langMap = {
       "english": "en",
@@ -301,10 +296,8 @@ export const translateText = async (text, targetLanguage) => {
     const translatedText = res.data?.[0]?.[0]?.[0];
     if (translatedText) return translatedText.trim();
   } catch (err) {
-    console.warn("⚠️ Free Google Translate failed, falling back to AI:", err.message);
   }
 
-  // 2. Fallback to AI (Gemini or OpenAI) if API keys are configured
   const systemPrompt = `You are an expert translator. Translate the English text into standard, natural ${targetLanguage}. 
 For technical terms, everyday objects, or loanwords (like "laptop", "mouse", "keyboard", "hello", etc.), please provide the standard, native word/phrase used in ${targetLanguage} (e.g. translate "laptop" to "computadora portátil" or "ordenador portátil" in Spanish, "ordinateur portable" in French, "ノートパソコン" in Japanese).
 Do NOT return the original English word if a standard native equivalent exists in ${targetLanguage}.
@@ -321,7 +314,7 @@ Text to translate: "${text}"`;
       const content = response.data.candidates?.[0]?.content?.parts?.[0]?.text;
       if (content) return content.trim();
     } catch (error) {
-      console.error("❌ Gemini Translation Error:", error.message);
+      console.error("Gemini Translation Error:", error.message);
     }
   }
 
@@ -335,7 +328,7 @@ Text to translate: "${text}"`;
       const content = response.choices[0].message.content;
       if (content) return content.trim();
     } catch (error) {
-      console.error("❌ OpenAI Translation Error:", error.message);
+      console.error("OpenAI Translation Error:", error.message);
     }
   }
 
@@ -352,7 +345,71 @@ export const translateArray = async (arr, targetLanguage) => {
     }
     return translated;
   } catch (err) {
-    console.warn("⚠️ Array translation failed:", err.message);
+    console.warn("Array translation failed:", err.message);
     return arr;
+  }
+};
+
+export const generateConversationHint = async ({
+  conversationHistory,
+  targetLanguage = "English",
+  nativeLanguage = "Spanish",
+  learningLevel = "Beginner",
+}) => {
+  const historyText = conversationHistory
+    .map((m) => `${m.sender === "tutor" || m.role === "ai" ? "Tutor" : "Student"}: ${m.text}`)
+    .join("\n");
+
+  const systemPrompt = `You are a helpful language tutoring assistant. 
+The student is practicing conversation in ${targetLanguage}.
+Their native language is ${nativeLanguage}.
+Their current proficiency level is ${learningLevel}.
+
+Conversation history:
+${historyText || "(No messages yet. The tutor is about to greet the student.)"}
+
+Based on the conversation context, generate ONE helpful hint or sample sentence that the student can say to respond to the tutor's last message.
+The hint must match their level (${learningLevel}). For beginners, keep it very simple. For advanced, make it more sophisticated.
+
+You must respond with a JSON object strictly matching this schema:
+{
+  "hintText": "A suitable reply in ${targetLanguage} for the student.",
+  "hintTranslation": "The direct translation of hintText in ${nativeLanguage}."
+}
+
+Do not include markdown or any text outside the JSON object. Output ONLY the JSON block.`;
+
+  if (googleApiKey && googleApiKey !== "dummy-key-for-now") {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${googleApiKey}`;
+      const response = await axios.post(url, {
+        contents: [{ parts: [{ text: systemPrompt }] }],
+        generationConfig: { responseMimeType: "application/json" },
+      });
+
+      const content = response.data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!content) throw new Error("No response content returned from Gemini");
+      return JSON.parse(content);
+    } catch (error) {
+      console.error("Gemini Hint generation failed:", error.message);
+      throw new Error(`Google Gemini hint generation failed: ${error.message}`);
+    }
+  }
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: systemPrompt }
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.7,
+    });
+
+    const content = response.choices[0].message.content;
+    return JSON.parse(content);
+  } catch (error) {
+    console.error("GPT Hint generation failed:", error.message);
+    throw new Error(`AI hint generation failed: ${error.message}`);
   }
 };

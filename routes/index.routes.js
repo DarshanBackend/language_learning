@@ -9,7 +9,7 @@ import {
   recordCompletedLesson,
   deleteAccount,
 } from "../controller/user.controller.js";
-import { handleVoiceMessage, getChatHistory } from "../controller/chatController.js";
+import { handleVoiceMessage, getChatHistory, getConversationHint } from "../controller/chatController.js";
 import {
   createCheckoutSession,
   stripeSuccessCallback,
@@ -59,7 +59,6 @@ import {
 } from "../controller/subcriptionPlan.controller.js";
 import { JourneyController } from "../controller/journey.controller.js";
 import { TopicController } from "../controller/topic.controller.js";
-import { TopicChatController } from "../controller/topicChat.controller.js";
 
 const indexRouter = express.Router();
 
@@ -99,6 +98,7 @@ indexRouter.delete("/user/deleteAccount", UserAuth, deleteAccount);
 // 3. Voice Chat Routes (/chat)
 // ==========================================
 indexRouter.post("/chat/message", UserAuth, upload.single("audio"), handleVoiceMessage);
+indexRouter.post("/chat/hint", UserAuth, getConversationHint);
 indexRouter.get("/chat/history", UserAuth, getChatHistory);
 
 // ==========================================
@@ -243,15 +243,6 @@ indexRouter.delete("/admin/deleteTopic/:id", UserAuth, adminAuth, TopicControlle
 indexRouter.get("/user/getTopics", UserAuth, TopicController.getTopics);
 indexRouter.get("/user/getTopicDetails/:id", UserAuth, TopicController.getTopicDetails);
 indexRouter.post("/user/recordCompletedTask", UserAuth, TopicController.recordCompletedTask);
-
-indexRouter.post("/user/topic/:topicId/chat/start", UserAuth, TopicChatController.startTopicChat);
-indexRouter.post(
-  "/user/topic/:topicId/chat/message",
-  UserAuth,
-  upload.single("audio"),
-  TopicChatController.sendMessage
-);
-indexRouter.get("/user/topic/:topicId/chat/history", UserAuth, TopicChatController.getChatHistory);
 
 indexRouter.get("/list", async (req, res) => {
   try {

@@ -1,14 +1,10 @@
 import { uploadFile } from "../middleware/imageupload.js";
-import { transcribeAudio, generateTutorResponse, textToSpeech } from "../services/aiService.js";
+import { transcribeAudio, generateTutorResponse, textToSpeech, translateText, generateConversationHint } from "../services/aiService.js";
 import ChatSessionModel from "../model/chatSession.model.js";
 import UserModel from "../model/user.model.js";
 import AnalyticsModel from "../model/analytics.model.js";
+import { sendBadRequestResponse, sendNotFoundResponse } from "../utils/Response.utils.js";
 
-/**
- * Update user study streak based on last practice date
- * @param {object} user - User document
- * @returns {Promise<number>} - Updated streak days
- */
 const updateStreak = async (user) => {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -31,7 +27,6 @@ const updateStreak = async (user) => {
     } else if (diffDays > 1) {
       user.streakDays = 1;
     }
-    // If diffDays === 0, user already practiced today; streak is unchanged.
   }
 
   user.lastPracticedDate = now;
@@ -39,11 +34,6 @@ const updateStreak = async (user) => {
   return user.streakDays;
 };
 
-/**
- * Update speaking and vocabulary analytics based on chat scores
- * @param {string} userId
- * @param {number} grammarScore
- */
 const updateAnalytics = async (userId, grammarScore) => {
   try {
     let analytics = await AnalyticsModel.findOne({ userId });
@@ -51,7 +41,6 @@ const updateAnalytics = async (userId, grammarScore) => {
       analytics = new AnalyticsModel({ userId });
     }
 
-    // Adjust trend scores smoothly
     analytics.speakingTrendScore = Math.round(
       analytics.speakingTrendScore * 0.8 + grammarScore * 0.2
     );
@@ -72,19 +61,27 @@ const updateAnalytics = async (userId, grammarScore) => {
 export const handleVoiceMessage = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { topicName = "General Conversation", targetLanguage = "English" } = req.body;
+    const topicName = "General Conversation";
+
+    const user = await UserModel.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const targetLanguage = req.body.targetLanguage || user.onboarding?.languageToLearn || "English";
+    const nativeLanguage = req.body.nativeLanguage || user.onboarding?.nativeLanguage || "Spanish";
 
     let userText = req.body.text || "";
     let userAudioUrl = null;
 
-    // 1. Transcribe audio if file is uploaded
     if (req.file) {
       try {
-        // Upload user audio to S3 first
         const userAudioUpload = await uploadFile(req.file);
         userAudioUrl = userAudioUpload.url;
 
-        // Transcribe voice to text
         userText = await transcribeAudio(req.file.buffer, req.file.originalname, req.file.mimetype);
       } catch (err) {
         return res.status(400).json({
@@ -102,23 +99,40 @@ export const handleVoiceMessage = async (req, res) => {
       });
     }
 
-    // 2. Send transcription/text to Gemini for tutoring response
+    let userTranslation = "";
+    try {
+      userTranslation = await translateText(userText, nativeLanguage);
+    } catch (err) {
+      console.warn("⚠️ Failed to translate user text:", err.message);
+    }
+
+    let chatSession = await ChatSessionModel.findOne({ userId, topicName });
+    if (!chatSession) {
+      chatSession = new ChatSessionModel({ userId, topicName, messages: [] });
+    }
+
+    const conversationHistory = chatSession.messages.slice(-10).map((m) => ({
+      sender: m.sender,
+      text: m.text,
+    }));
+
     const tutorResponse = await generateTutorResponse(
       userText,
       targetLanguage,
+      nativeLanguage,
+      conversationHistory,
       req.file ? req.file.buffer : null,
       req.file ? req.file.mimetype : null
     );
-    const { 
-      aiReply, 
-      translation, 
-      grammarScore, 
-      feedbackText, 
-      pronunciationScore, 
-      pronunciationFeedback 
+    const {
+      aiReply,
+      translation,
+      grammarScore,
+      feedbackText,
+      pronunciationScore,
+      pronunciationFeedback
     } = tutorResponse;
 
-    // 3. Generate voice audio for the tutor response via TTS
     let tutorAudioUrl = null;
     try {
       const tutorAudioBuffer = await textToSpeech(aiReply);
@@ -134,25 +148,16 @@ export const handleVoiceMessage = async (req, res) => {
       console.error("⚠️ TTS Generation failed, continuing with text only:", err.message);
     }
 
-    // 4. Update user study streak and analytics
-    const user = await UserModel.findById(userId);
     const updatedStreak = await updateStreak(user);
     await updateAnalytics(userId, grammarScore);
 
-    // 5. Save discussion details to MongoDB
-    let chatSession = await ChatSessionModel.findOne({ userId, topicName });
-    if (!chatSession) {
-      chatSession = new ChatSessionModel({ userId, topicName, messages: [] });
-    }
-
-    // Add user message
     chatSession.messages.push({
       sender: "user",
       text: userText,
       audioUrl: userAudioUrl,
+      translation: userTranslation,
     });
 
-    // Add tutor message
     chatSession.messages.push({
       sender: "tutor",
       text: aiReply,
@@ -166,13 +171,13 @@ export const handleVoiceMessage = async (req, res) => {
 
     await chatSession.save();
 
-    // 6. Return response
     return res.status(200).json({
       success: true,
       message: "Tutor responded successfully",
       result: {
         userText,
         userAudioUrl,
+        userTranslation,
         aiReply,
         tutorAudioUrl,
         translation,
@@ -194,13 +199,14 @@ export const handleVoiceMessage = async (req, res) => {
   }
 };
 
-/**
- * Retrieve chat sessions of the logged-in user
- */
 export const getChatHistory = async (req, res) => {
   try {
     const userId = req.user._id;
     const history = await ChatSessionModel.find({ userId }).sort({ updatedAt: -1 });
+
+    if (history.length === 0) {
+      return sendNotFoundResponse(res, "No any history found...")
+    }
 
     return res.status(200).json({
       success: true,
@@ -211,6 +217,56 @@ export const getChatHistory = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to fetch chat history",
+      error: error.message,
+    });
+  }
+};
+
+export const getConversationHint = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const topicName = "General Conversation";
+
+    const user = await UserModel.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const targetLang = req.body.targetLanguage || user.onboarding?.languageToLearn || "English";
+    const nativeLang = req.body.nativeLanguage || user.onboarding?.nativeLanguage || "Spanish";
+    const learningLevel = user.onboarding?.learningLevel || "Beginner";
+
+    const chatSession = await ChatSessionModel.findOne({ userId, topicName });
+    const messages = chatSession ? chatSession.messages.slice(-10) : [];
+
+    const conversationHistory = messages.map((m) => ({
+      sender: m.sender,
+      text: m.text,
+    }));
+
+    const hintResult = await generateConversationHint({
+      conversationHistory,
+      targetLanguage: targetLang,
+      nativeLanguage: nativeLang,
+      learningLevel,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Conversation hint generated successfully",
+      result: {
+        hintText: hintResult.hintText,
+        hintTranslation: hintResult.hintTranslation,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Get Conversation Hint Error:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to generate conversation hint",
       error: error.message,
     });
   }
