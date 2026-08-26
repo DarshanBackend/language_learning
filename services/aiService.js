@@ -59,11 +59,13 @@ export const transcribeAudio = async (fileBuffer, originalname, fileMimeType = n
       }
       return text.trim();
     } catch (error) {
-      console.error("Gemini Transcription Error:", error.message);
-      if (error.response?.data) {
-        console.error("Gemini Transcription Error Details:", JSON.stringify(error.response.data, null, 2));
+      console.warn("Gemini Transcription failed, falling back to Whisper:", error.message);
+      if (!openaiApiKey || openaiApiKey === "dummy-key-for-now") {
+        throw new Error(`Gemini transcription failed (${error.message}) and no valid OPENAI_API_KEY is configured in your .env file.`);
       }
-      throw new Error(`Google Speech-to-Text transcription failed: ${error.message}`);
+      if (error.response?.data) {
+        console.warn("Gemini Transcription Error Details:", JSON.stringify(error.response.data, null, 2));
+      }
     }
   }
 
@@ -117,7 +119,7 @@ Do not include any markup, markdown tags, or explanatory text outside the JSON o
   if (googleApiKey && googleApiKey !== "dummy-key-for-now") {
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${googleApiKey}`;
-      
+
       const parts = [];
       if (audioBuffer && audioMimeType) {
         parts.push({
@@ -142,8 +144,10 @@ Do not include any markup, markdown tags, or explanatory text outside the JSON o
       }
       return JSON.parse(content);
     } catch (error) {
-      console.error("Gemini Tutor Response Error:", error.message);
-      throw new Error(`Google Gemini tutor response generation failed: ${error.message}`);
+      console.warn("Gemini Tutor Response failed, falling back to OpenAI:", error.message);
+      if (!openaiApiKey || openaiApiKey === "dummy-key-for-now") {
+        throw new Error(`Gemini tutor response failed (${error.message}) and no valid OPENAI_API_KEY is configured in your .env file.`);
+      }
     }
   }
 
@@ -244,8 +248,10 @@ Do not include markdown or any text outside the JSON object. Output ONLY the JSO
       if (!content) throw new Error("No response content returned from Gemini");
       return JSON.parse(content);
     } catch (error) {
-      console.error("Gemini Task Chat Error:", error.message);
-      throw new Error(`Google Gemini task chat generation failed: ${error.message}`);
+      console.warn("Gemini Task Chat failed, falling back to OpenAI:", error.message);
+      if (!openaiApiKey || openaiApiKey === "dummy-key-for-now") {
+        throw new Error(`Gemini task chat failed (${error.message}) and no valid OPENAI_API_KEY is configured in your .env file.`);
+      }
     }
   }
 
@@ -391,8 +397,10 @@ Do not include markdown or any text outside the JSON object. Output ONLY the JSO
       if (!content) throw new Error("No response content returned from Gemini");
       return JSON.parse(content);
     } catch (error) {
-      console.error("Gemini Hint generation failed:", error.message);
-      throw new Error(`Google Gemini hint generation failed: ${error.message}`);
+      console.warn("Gemini Hint generation failed, falling back to OpenAI:", error.message);
+      if (!openaiApiKey || openaiApiKey === "dummy-key-for-now") {
+        throw new Error(`Gemini hint generation failed (${error.message}) and no valid OPENAI_API_KEY is configured in your .env file.`);
+      }
     }
   }
 
