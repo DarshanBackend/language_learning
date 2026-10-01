@@ -331,7 +331,7 @@ export class JourneyController {
           try {
             await deleteFileFromS3(lesson.image);
           } catch (err) {
-            console.warn("⚠️ Failed to delete old lesson image:", err.message);
+            console.warn("Failed to delete old lesson image:", err.message);
           }
         }
       } else if (req.body.image === "" || req.body.image === "null" || req.body.image === null) {
@@ -340,7 +340,7 @@ export class JourneyController {
           try {
             await deleteFileFromS3(lesson.image);
           } catch (err) {
-            console.warn("⚠️ Failed to delete old lesson image:", err.message);
+            console.warn("Failed to delete old lesson image:", err.message);
           }
         }
       }
@@ -388,7 +388,7 @@ export class JourneyController {
         try {
           await deleteFileFromS3(lesson.image);
         } catch (err) {
-          console.warn("⚠️ Failed to delete lesson image:", err.message);
+          console.warn("Failed to delete lesson image:", err.message);
         }
       }
 
@@ -472,7 +472,7 @@ export class JourneyController {
           const uploadResult = await uploadFile(mockFile);
           newAudioUrl = uploadResult.url;
         } catch (ttsErr) {
-          console.warn("⚠️ Google Translate S3 Upload failed on create:", ttsErr.message);
+          console.warn("Google Translate S3 Upload failed on create:", ttsErr.message);
         }
       }
 
@@ -531,7 +531,7 @@ export class JourneyController {
             const uploadResult = await uploadFile(mockFile);
             targetAudioUrl = uploadResult.url;
           } catch (ttsErr) {
-            console.warn(`⚠️ Google Translate S3 Upload failed on target create for ${langName}:`, ttsErr.message);
+            console.warn(`Google Translate S3 Upload failed on target create for ${langName}:`, ttsErr.message);
           }
         } else {
           // MCQ or Response
@@ -680,7 +680,7 @@ export class JourneyController {
           newAudioUrl = uploadResult.url;
           updateData.audio = newAudioUrl;
         } catch (ttsErr) {
-          console.warn("⚠️ Google Translate S3 Upload failed on update:", ttsErr.message);
+          console.warn("Google Translate S3 Upload failed on update:", ttsErr.message);
         }
       }
 
@@ -756,7 +756,7 @@ export class JourneyController {
                   await deleteFileFromS3(oldTrans.audio);
                 }
               } catch (ttsErr) {
-                console.warn(`⚠️ S3 update translation audio failed for ${langName}:`, ttsErr.message);
+                console.warn(`S3 update translation audio failed for ${langName}:`, ttsErr.message);
               }
             }
           } else {
@@ -901,7 +901,7 @@ export class JourneyController {
             const uploadResult = await uploadFile(mockFile);
             targetAudioUrl = uploadResult.url;
           } catch (ttsErr) {
-            console.warn("⚠️ Auto-heal TTS audio generation failed:", ttsErr.message);
+            console.warn("Auto-heal TTS audio generation failed:", ttsErr.message);
           }
         }
 
@@ -921,7 +921,7 @@ export class JourneyController {
           audio: targetAudioUrl,
         };
       } catch (err) {
-        console.warn("⚠️ Auto-heal question translation failed:", err.message);
+        console.warn("Auto-heal question translation failed:", err.message);
       }
     }
 
@@ -968,7 +968,7 @@ export class JourneyController {
           points: transPoints,
         };
       } catch (err) {
-        console.warn("⚠️ Auto-heal topic translation failed:", err.message);
+        console.warn("Auto-heal topic translation failed:", err.message);
       }
     }
 
@@ -1009,7 +1009,7 @@ export class JourneyController {
           category: transCategory,
         };
       } catch (err) {
-        console.warn("⚠️ Auto-heal lesson translation failed:", err.message);
+        console.warn("Auto-heal lesson translation failed:", err.message);
       }
     }
 
@@ -1092,7 +1092,7 @@ export class JourneyController {
         }
       }
     } catch (err) {
-      console.warn("⚠️ syncTopicCompletion failed:", err.message);
+      console.warn("syncTopicCompletion failed:", err.message);
     }
   }
 
@@ -1116,19 +1116,27 @@ export class JourneyController {
       const langKey = languageToLearn ? languageToLearn.toLowerCase().trim() : null;
       const analytics = await AnalyticsModel.findOne({ userId: targetUserId });
 
+      const completedLessonIdSet = new Set(
+        (analytics?.completedLessons || [])
+          .filter((cl) => cl.status === "completed")
+          .map((cl) => (cl.journeyLessonId || cl.lessonId)?.toString())
+      );
+      const completedQIdSet = new Set(
+        (analytics?.completedQuestions || [])
+          .filter((cq) => cq.isCorrect)
+          .map((cq) => cq.questionId?.toString())
+      );
+
       const mappedQuestions = [];
       for (const q of questions) {
         const mapped = await JourneyController.mapAndHealQuestion(q, langKey, languageToLearn);
+        const lessonIdStr = (mapped.journeyLessonId?._id || mapped.journeyLessonId)?.toString();
+        const isLessonDone = lessonIdStr ? completedLessonIdSet.has(lessonIdStr) : false;
+
+        mapped.isCompleted = isLessonDone || completedQIdSet.has(q._id.toString());
 
         if (mapped.journeyLessonId && typeof mapped.journeyLessonId === "object") {
-          const lessonIdStr = (mapped.journeyLessonId._id || mapped.journeyLessonId).toString();
-          const completedCount = analytics
-            ? analytics.completedLessons.filter((cl) => {
-              const targetId = cl.journeyLessonId || cl.lessonId;
-              return targetId?.toString() === lessonIdStr && cl.status === "completed";
-            }).length
-            : 0;
-          mapped.journeyLessonId.isCompleted = completedCount > 0;
+          mapped.journeyLessonId.isCompleted = isLessonDone;
         }
 
         mappedQuestions.push(mapped);
@@ -1166,17 +1174,24 @@ export class JourneyController {
       const langKey = languageToLearn ? languageToLearn.toLowerCase().trim() : null;
       const analytics = await AnalyticsModel.findOne({ userId: targetUserId });
 
+      const lessonIdStr = (question.journeyLessonId?._id || question.journeyLessonId)?.toString();
+      const isLessonDone = analytics
+        ? analytics.completedLessons.some(
+            (cl) => (cl.journeyLessonId || cl.lessonId)?.toString() === lessonIdStr && cl.status === "completed"
+          )
+        : false;
+
+      const completedQIdSet = new Set(
+        (analytics?.completedQuestions || [])
+          .filter((cq) => cq.isCorrect)
+          .map((cq) => cq.questionId?.toString())
+      );
+
       const mapped = await JourneyController.mapAndHealQuestion(question, langKey, languageToLearn);
+      mapped.isCompleted = isLessonDone || completedQIdSet.has(question._id.toString());
 
       if (mapped.journeyLessonId && typeof mapped.journeyLessonId === "object") {
-        const lessonIdStr = (mapped.journeyLessonId._id || mapped.journeyLessonId).toString();
-        const completedCount = analytics
-          ? analytics.completedLessons.filter((cl) => {
-            const targetId = cl.journeyLessonId || cl.lessonId;
-            return targetId?.toString() === lessonIdStr && cl.status === "completed";
-          }).length
-          : 0;
-        mapped.journeyLessonId.isCompleted = completedCount > 0;
+        mapped.journeyLessonId.isCompleted = isLessonDone;
       }
 
       return sendSuccessResponse(res, "Journey question retrieved successfully", mapped);
@@ -1205,6 +1220,12 @@ export class JourneyController {
       const topics = await JourneyTopicModel.find().sort({ topicNumber: 1, createdAt: 1 });
       const analytics = await AnalyticsModel.findOne({ userId: targetUserId });
 
+      const completedQIdSet = new Set(
+        (analytics?.completedQuestions || [])
+          .filter((cq) => cq.isCorrect)
+          .map((cq) => cq.questionId?.toString())
+      );
+
       const journey = [];
       const langKey = languageToLearn.toLowerCase().trim();
 
@@ -1219,24 +1240,33 @@ export class JourneyController {
           const lessonData = await JourneyController.mapAndHealLesson(lesson, langKey, languageToLearn);
 
           const questions = await JourneyQuestionModel.find({ journeyLessonId: lesson._id, isDeleted: false });
+
+          // Check if lesson is marked completed in analytics
+          const isLessonAlreadyCompleted = analytics
+            ? analytics.completedLessons.some((cl) => {
+                const targetId = cl.journeyLessonId || cl.lessonId;
+                return targetId?.toString() === lesson._id.toString() && cl.status === "completed";
+              })
+            : false;
+
           const mappedQuestions = [];
+          let allQuestionsDone = questions.length > 0;
 
           for (const q of questions) {
             const mapped = await JourneyController.mapAndHealQuestion(q, langKey, languageToLearn);
+            const isQDone = isLessonAlreadyCompleted || completedQIdSet.has(q._id.toString());
+            if (!isQDone) {
+              allQuestionsDone = false;
+            }
+            mapped.isCompleted = isQDone;
             mappedQuestions.push(mapped);
           }
 
-          // Check completions in analytics (handling both old database field lessonId and new field journeyLessonId)
-          const completedCount = analytics
-            ? analytics.completedLessons.filter((cl) => {
-              const targetId = cl.journeyLessonId || cl.lessonId;
-              return targetId?.toString() === lesson._id.toString() && cl.status === "completed";
-            }).length
-            : 0;
+          const isLessonCompleted = isLessonAlreadyCompleted || (questions.length > 0 && allQuestionsDone);
 
           lessonsData.push({
             ...lessonData,
-            isCompleted: completedCount > 0,
+            isCompleted: isLessonCompleted,
             questions: mappedQuestions,
           });
         }
@@ -1299,20 +1329,32 @@ export class JourneyController {
       const languageToLearn = targetUser?.onboarding?.languageToLearn;
       const langKey = languageToLearn ? languageToLearn.toLowerCase().trim() : null;
 
+      const completedQIdSet = new Set(
+        (analytics?.completedQuestions || [])
+          .filter((cq) => cq.isCorrect)
+          .map((cq) => cq.questionId?.toString())
+      );
+
       const mappedLessons = [];
       for (const lesson of lessons) {
         const mapped = await JourneyController.mapAndHealLesson(lesson, langKey, languageToLearn);
 
-        const completedCount = analytics
-          ? analytics.completedLessons.filter((cl) => {
-            const targetId = cl.journeyLessonId || cl.lessonId;
-            return targetId?.toString() === mapped._id.toString() && cl.status === "completed";
-          }).length
-          : 0;
+        const isLessonDoneInAnalytics = analytics
+          ? analytics.completedLessons.some((cl) => {
+              const targetId = cl.journeyLessonId || cl.lessonId;
+              return targetId?.toString() === mapped._id.toString() && cl.status === "completed";
+            })
+          : false;
+
+        let allQuestionsDone = false;
+        if (!isLessonDoneInAnalytics) {
+          const questions = await JourneyQuestionModel.find({ journeyLessonId: lesson._id, isDeleted: false });
+          allQuestionsDone = questions.length > 0 && questions.every((q) => completedQIdSet.has(q._id.toString()));
+        }
 
         mappedLessons.push({
           ...mapped,
-          isCompleted: completedCount > 0
+          isCompleted: isLessonDoneInAnalytics || allQuestionsDone,
         });
       }
 
@@ -1349,19 +1391,26 @@ export class JourneyController {
       const languageToLearn = targetUser?.onboarding?.languageToLearn;
       const langKey = languageToLearn ? languageToLearn.toLowerCase().trim() : null;
 
+      const isLessonAlreadyCompleted = analytics
+        ? analytics.completedLessons.some((cl) => {
+            const targetId = cl.journeyLessonId || cl.lessonId;
+            return targetId?.toString() === lessonId.toString() && cl.status === "completed";
+          })
+        : false;
+
+      const completedQIdSet = new Set(
+        (analytics?.completedQuestions || [])
+          .filter((cq) => cq.isCorrect)
+          .map((cq) => cq.questionId?.toString())
+      );
+
       const mappedQuestions = [];
       for (const q of questions) {
         const mapped = await JourneyController.mapAndHealQuestion(q, langKey, languageToLearn);
+        mapped.isCompleted = isLessonAlreadyCompleted || completedQIdSet.has(q._id.toString());
 
         if (mapped.journeyLessonId && typeof mapped.journeyLessonId === "object") {
-          const lessonIdStr = (mapped.journeyLessonId._id || mapped.journeyLessonId).toString();
-          const completedCount = analytics
-            ? analytics.completedLessons.filter((cl) => {
-              const targetId = cl.journeyLessonId || cl.lessonId;
-              return targetId?.toString() === lessonIdStr && cl.status === "completed";
-            }).length
-            : 0;
-          mapped.journeyLessonId.isCompleted = completedCount > 0;
+          mapped.journeyLessonId.isCompleted = isLessonAlreadyCompleted;
         }
 
         mappedQuestions.push(mapped);
@@ -1409,13 +1458,13 @@ export class JourneyController {
         const hasGeminiKey = process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== "dummy-key-for-now";
 
         if (!hasGeminiKey) {
-          console.warn("⚠️ Gemini API key not configured, simulating transcription matching correct answer.");
+          console.warn("Gemini API key not configured, simulating transcription matching correct answer.");
           transcribedText = targetText;
         } else {
           transcribedText = await transcribeAudio(req.file.buffer, req.file.originalname, req.file.mimetype);
         }
       } catch (err) {
-        console.error("❌ Audio transcription failed:", err.message);
+        console.error("Audio transcription failed:", err.message);
         return sendErrorResponse(res, 500, `Audio transcription failed: ${err.message}`, err);
       }
 
@@ -1455,55 +1504,94 @@ export class JourneyController {
       const passingScore = 70;
       const isCorrect = score >= passingScore;
 
-      let shouldComplete = req.body.isCompleted === true || req.body.isCompleted === "true";
-      if (!shouldComplete && isCorrect) {
-        const totalQuestionsCount = await JourneyQuestionModel.countDocuments({
-          journeyLessonId: question.journeyLessonId,
-          isDeleted: false
-        });
-        if (totalQuestionsCount === 1) {
-          shouldComplete = true;
+      let analytics = await AnalyticsModel.findOne({ userId: req.user._id });
+      if (!analytics) {
+        analytics = new AnalyticsModel({ userId: req.user._id });
+      }
+
+      if (!analytics.completedQuestions) {
+        analytics.completedQuestions = [];
+      }
+
+      const qIdStr = question._id.toString();
+      const lessonIdStr = question.journeyLessonId.toString();
+
+      if (isCorrect) {
+        const existingQ = analytics.completedQuestions.find(
+          (cq) => cq.questionId?.toString() === qIdStr
+        );
+        if (!existingQ) {
+          analytics.completedQuestions.push({
+            questionId: qIdStr,
+            journeyLessonId: lessonIdStr,
+            isCorrect: true,
+            score: score,
+            completedAt: new Date(),
+          });
+        } else {
+          existingQ.isCorrect = true;
+          existingQ.score = Math.max(existingQ.score || 0, score);
+          existingQ.completedAt = new Date();
         }
       }
 
-      if (shouldComplete) {
-        let analytics = await AnalyticsModel.findOne({ userId: req.user._id });
-        if (!analytics) {
-          analytics = new AnalyticsModel({ userId: req.user._id });
-        }
+      // Check if all active questions of this lesson are completed
+      const allLessonQuestions = await JourneyQuestionModel.find({
+        journeyLessonId: question.journeyLessonId,
+        isDeleted: false,
+      });
 
-        const lessonIdStr = question.journeyLessonId.toString();
-        const alreadyCompleted = analytics.completedLessons.some(
-          (cl) => (cl.journeyLessonId || cl.lessonId)?.toString() === lessonIdStr && cl.status === "completed"
+      const completedQIdSet = new Set(
+        analytics.completedQuestions
+          .filter((cq) => cq.isCorrect)
+          .map((cq) => cq.questionId?.toString())
+      );
+
+      const allQuestionsCompleted =
+        allLessonQuestions.length > 0 &&
+        allLessonQuestions.every((q) => completedQIdSet.has(q._id.toString()));
+
+      let shouldComplete =
+        allQuestionsCompleted || req.body.isCompleted === true || req.body.isCompleted === "true";
+
+      if (shouldComplete) {
+        const existingLesson = analytics.completedLessons.find(
+          (cl) => (cl.journeyLessonId || cl.lessonId)?.toString() === lessonIdStr
         );
 
-        if (!alreadyCompleted) {
+        if (!existingLesson) {
           analytics.completedLessons.push({
             journeyLessonId: question.journeyLessonId,
             status: "completed",
-            score: score
+            score: score,
+            completedAt: new Date(),
           });
-
-          analytics.speakingTrendScore = Math.min(
-            100,
-            Math.round(analytics.speakingTrendScore * 0.9 + score * 0.1)
-          );
-          analytics.vocabularyTrendScore = Math.min(
-            100,
-            Math.round(analytics.vocabularyTrendScore * 0.92 + 8)
-          );
-
-          await JourneyController.syncTopicCompletion(analytics, question.journeyLessonId);
-          await analytics.save();
+        } else {
+          existingLesson.status = "completed";
+          existingLesson.score = Math.max(existingLesson.score || 0, score);
+          existingLesson.completedAt = new Date();
         }
+
+        analytics.speakingTrendScore = Math.min(
+          100,
+          Math.round(analytics.speakingTrendScore * 0.9 + score * 0.1)
+        );
+        analytics.vocabularyTrendScore = Math.min(
+          100,
+          Math.round(analytics.vocabularyTrendScore * 0.92 + 8)
+        );
+
+        await JourneyController.syncTopicCompletion(analytics, question.journeyLessonId);
       }
+
+      await analytics.save();
 
       return sendSuccessResponse(res, "Voice checked successfully", {
         transcribedText,
         targetText,
         score,
         isCorrect,
-        isCompleted: shouldComplete
+        isCompleted: shouldComplete,
       });
     } catch (error) {
       return sendErrorResponse(res, 500, error.message, error);
@@ -1535,61 +1623,96 @@ export class JourneyController {
         return sendBadRequestResponse(res, "Please use verifyUserSpeaking for speaking questions.");
       }
 
-      const languageToLearn = req.user?.onboarding?.languageToLearn;
-      const langKey = languageToLearn ? languageToLearn.toLowerCase().trim() : null;
-
       const targetRightAnswer = question.rightAnswer;
-
       const isCorrect = targetRightAnswer.trim().toLowerCase() === String(answer).trim().toLowerCase();
 
-      let shouldComplete = isCompleted === true || isCompleted === "true";
-      if (!shouldComplete && isCorrect) {
-        const totalQuestionsCount = await JourneyQuestionModel.countDocuments({
-          journeyLessonId: question.journeyLessonId,
-          isDeleted: false
-        });
-        if (totalQuestionsCount === 1) {
-          shouldComplete = true;
+      let analytics = await AnalyticsModel.findOne({ userId: req.user._id });
+      if (!analytics) {
+        analytics = new AnalyticsModel({ userId: req.user._id });
+      }
+
+      if (!analytics.completedQuestions) {
+        analytics.completedQuestions = [];
+      }
+
+      const qIdStr = question._id.toString();
+      const lessonIdStr = question.journeyLessonId.toString();
+
+      if (isCorrect) {
+        const existingQ = analytics.completedQuestions.find(
+          (cq) => cq.questionId?.toString() === qIdStr
+        );
+        if (!existingQ) {
+          analytics.completedQuestions.push({
+            questionId: qIdStr,
+            journeyLessonId: lessonIdStr,
+            isCorrect: true,
+            score: 100,
+            completedAt: new Date(),
+          });
+        } else {
+          existingQ.isCorrect = true;
+          existingQ.score = 100;
+          existingQ.completedAt = new Date();
         }
       }
 
-      if (shouldComplete) {
-        let analytics = await AnalyticsModel.findOne({ userId: req.user._id });
-        if (!analytics) {
-          analytics = new AnalyticsModel({ userId: req.user._id });
-        }
+      // Check if all active questions of this lesson are completed
+      const allLessonQuestions = await JourneyQuestionModel.find({
+        journeyLessonId: question.journeyLessonId,
+        isDeleted: false,
+      });
 
-        const lessonIdStr = question.journeyLessonId.toString();
-        const alreadyCompleted = analytics.completedLessons.some(
-          (cl) => (cl.journeyLessonId || cl.lessonId)?.toString() === lessonIdStr && cl.status === "completed"
+      const completedQIdSet = new Set(
+        analytics.completedQuestions
+          .filter((cq) => cq.isCorrect)
+          .map((cq) => cq.questionId?.toString())
+      );
+
+      const allQuestionsCompleted =
+        allLessonQuestions.length > 0 &&
+        allLessonQuestions.every((q) => completedQIdSet.has(q._id.toString()));
+
+      let shouldComplete =
+        allQuestionsCompleted || isCompleted === true || isCompleted === "true";
+
+      if (shouldComplete) {
+        const existingLesson = analytics.completedLessons.find(
+          (cl) => (cl.journeyLessonId || cl.lessonId)?.toString() === lessonIdStr
         );
 
-        if (!alreadyCompleted) {
+        if (!existingLesson) {
           analytics.completedLessons.push({
             journeyLessonId: question.journeyLessonId,
             status: "completed",
-            score: isCorrect ? 100 : 0
+            score: isCorrect ? 100 : 0,
+            completedAt: new Date(),
           });
-
-          analytics.listeningTrendScore = Math.min(
-            100,
-            Math.round(analytics.listeningTrendScore * 0.9 + (isCorrect ? 10 : 0))
-          );
-          analytics.vocabularyTrendScore = Math.min(
-            100,
-            Math.round(analytics.vocabularyTrendScore * 0.92 + 8)
-          );
-
-          await JourneyController.syncTopicCompletion(analytics, question.journeyLessonId);
-          await analytics.save();
+        } else {
+          existingLesson.status = "completed";
+          existingLesson.score = isCorrect ? 100 : existingLesson.score || 0;
+          existingLesson.completedAt = new Date();
         }
+
+        analytics.listeningTrendScore = Math.min(
+          100,
+          Math.round(analytics.listeningTrendScore * 0.9 + (isCorrect ? 10 : 0))
+        );
+        analytics.vocabularyTrendScore = Math.min(
+          100,
+          Math.round(analytics.vocabularyTrendScore * 0.92 + 8)
+        );
+
+        await JourneyController.syncTopicCompletion(analytics, question.journeyLessonId);
       }
+
+      await analytics.save();
 
       return sendSuccessResponse(res, "Question verified successfully", {
         questionId,
         isCorrect,
         rightAnswer: targetRightAnswer,
-        isCompleted: shouldComplete
+        isCompleted: shouldComplete,
       });
     } catch (error) {
       return sendErrorResponse(res, 500, error.message, error);
@@ -1610,15 +1733,39 @@ export class JourneyController {
 
       let analytics = await AnalyticsModel.findOne({ userId });
       if (analytics) {
+        const lessonIdStr = lessonId.toString();
         const initialLength = analytics.completedLessons.length;
         analytics.completedLessons = analytics.completedLessons.filter(
-          (cl) => (cl.journeyLessonId || cl.lessonId)?.toString() !== lessonId.toString()
+          (cl) => (cl.journeyLessonId || cl.lessonId)?.toString() !== lessonIdStr
         );
 
-        if (analytics.completedLessons.length !== initialLength) {
-          await analytics.save();
-          return sendSuccessResponse(res, "Lesson completion status reset to not completed successfully.");
+        if (analytics.completedQuestions) {
+          analytics.completedQuestions = analytics.completedQuestions.filter(
+            (cq) => cq.journeyLessonId?.toString() !== lessonIdStr
+          );
         }
+
+        const lesson = await JourneyLessonModel.findById(lessonId);
+        if (lesson && lesson.journeyTopicId) {
+          const journeyTopicIdStr = lesson.journeyTopicId.toString();
+          const allLessons = await JourneyLessonModel.find({ journeyTopicId: lesson.journeyTopicId });
+          const allLessonIds = allLessons.map((l) => l._id.toString());
+          const remainingCompleted = analytics.completedLessons
+            .filter((cl) => cl.status === "completed" && allLessonIds.includes((cl.journeyLessonId || cl.lessonId)?.toString()))
+            .length;
+
+          const topicRecord = analytics.completedTopics.find((ct) => ct.topicId === journeyTopicIdStr);
+          if (topicRecord) {
+            topicRecord.completedTasksCount = remainingCompleted;
+            topicRecord.status = remainingCompleted === allLessons.length && allLessons.length > 0 ? "completed" : "started";
+            if (topicRecord.status !== "completed") {
+              topicRecord.completedAt = null;
+            }
+          }
+        }
+
+        await analytics.save();
+        return sendSuccessResponse(res, "Lesson completion status reset successfully.");
       }
 
       return sendSuccessResponse(res, "Lesson was not marked as completed anyway.");

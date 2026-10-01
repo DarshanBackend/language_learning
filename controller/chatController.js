@@ -1,4 +1,4 @@
-import { uploadFile } from "../middleware/imageupload.js";
+import { uploadFile, deleteFileFromS3 } from "../middleware/imageupload.js";
 import { transcribeAudio, generateTutorResponse, textToSpeech, translateText, generateConversationHint } from "../services/aiService.js";
 import ChatSessionModel from "../model/chatSession.model.js";
 import UserModel from "../model/user.model.js";
@@ -54,7 +54,7 @@ const updateAnalytics = async (userId, grammarScore) => {
 
     await analytics.save();
   } catch (error) {
-    console.error("⚠️ Failed to update analytics:", error.message);
+    console.error("Failed to update analytics:", error.message);
   }
 };
 
@@ -103,7 +103,7 @@ export const handleVoiceMessage = async (req, res) => {
     try {
       userTranslation = await translateText(userText, nativeLanguage);
     } catch (err) {
-      console.warn("⚠️ Failed to translate user text:", err.message);
+      console.warn("Failed to translate user text:", err.message);
     }
 
     let chatSession = await ChatSessionModel.findOne({ userId, topicName });
@@ -145,7 +145,7 @@ export const handleVoiceMessage = async (req, res) => {
       const tutorAudioUpload = await uploadFile(tutorFileMock);
       tutorAudioUrl = tutorAudioUpload.url;
     } catch (err) {
-      console.error("⚠️ TTS Generation failed, continuing with text only:", err.message);
+      console.error("TTS Generation failed, continuing with text only:", err.message);
     }
 
     const updatedStreak = await updateStreak(user);
@@ -190,7 +190,7 @@ export const handleVoiceMessage = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("❌ Voice message handling error:", error.message);
+    console.error("Voice message handling error:", error.message);
     return res.status(500).json({
       success: false,
       message: "Server error during voice message processing",
@@ -205,7 +205,7 @@ export const getChatHistory = async (req, res) => {
     const history = await ChatSessionModel.find({ userId }).sort({ updatedAt: -1 });
 
     if (history.length === 0) {
-      return sendNotFoundResponse(res, "No any history found...")
+      return sendNotFoundResponse(res, "No any history found...");
     }
 
     return res.status(200).json({
@@ -263,10 +263,57 @@ export const getConversationHint = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("❌ Get Conversation Hint Error:", error.message);
+    console.error("Get Conversation Hint Error:", error.message);
     return res.status(500).json({
       success: false,
       message: "Failed to generate conversation hint",
+      error: error.message,
+    });
+  }
+};
+
+export const deleteChatHistory = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { sessionId, topicName } = req.query;
+
+    let filter = { userId };
+    if (sessionId) {
+      filter._id = sessionId;
+    } else if (topicName) {
+      filter.topicName = topicName;
+    }
+
+    const sessions = await ChatSessionModel.find(filter);
+    if (sessions.length === 0) {
+      return sendNotFoundResponse(res, "No chat history found to delete.");
+    }
+
+    for (const session of sessions) {
+      if (session.messages && session.messages.length > 0) {
+        for (const msg of session.messages) {
+          if (msg.audioUrl) {
+            try {
+              await deleteFileFromS3(msg.audioUrl);
+            } catch (s3Err) {
+              console.warn("S3 chat audio deletion failed:", s3Err.message);
+            }
+          }
+        }
+      }
+    }
+
+    await ChatSessionModel.deleteMany(filter);
+
+    return res.status(200).json({
+      success: true,
+      message: "Chat history deleted successfully",
+    });
+  } catch (error) {
+    console.error("Delete Chat History Error:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to delete chat history",
       error: error.message,
     });
   }

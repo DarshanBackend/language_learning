@@ -30,10 +30,23 @@ const TopicSchema = new mongoose.Schema(
       required: [true, "Category/Topic is required"],
       trim: true,
     },
+    categorySubtitle: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     difficulty: {
       type: String,
       enum: ["Easy", "Medium", "Hard"],
       default: "Easy",
+    },
+    termsCount: {
+      type: Number,
+      default: 0,
+    },
+    image: {
+      type: String,
+      default: "",
     },
     languageToLearn: {
       type: String,

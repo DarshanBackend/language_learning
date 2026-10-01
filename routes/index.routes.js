@@ -9,7 +9,7 @@ import {
   recordCompletedLesson,
   deleteAccount,
 } from "../controller/user.controller.js";
-import { handleVoiceMessage, getChatHistory, getConversationHint } from "../controller/chatController.js";
+import { handleVoiceMessage, getChatHistory, getConversationHint, deleteChatHistory } from "../controller/chatController.js";
 import {
   createCheckoutSession,
   stripeSuccessCallback,
@@ -100,6 +100,7 @@ indexRouter.delete("/user/deleteAccount", UserAuth, deleteAccount);
 indexRouter.post("/chat/message", UserAuth, upload.single("audio"), handleVoiceMessage);
 indexRouter.post("/chat/hint", UserAuth, getConversationHint);
 indexRouter.get("/chat/history", UserAuth, getChatHistory);
+indexRouter.delete("/deleteChatHistory", UserAuth, deleteChatHistory);
 
 // ==========================================
 // 4. Subscription Routes (/subscription)
@@ -234,15 +235,16 @@ indexRouter.get("/user/questionsByLesson/:lessonId", UserAuth, JourneyController
 
 
 // Admin Topic CRUD
-indexRouter.post("/admin/createTopic", UserAuth, adminAuth, TopicController.createTopic);
+indexRouter.post("/admin/createTopic", UserAuth, adminAuth, upload.single("image"), TopicController.createTopic);
 indexRouter.get("/admin/getAllTopicsAdmin", UserAuth, adminAuth, TopicController.getAllTopicsAdmin);
-indexRouter.put("/admin/updateTopic/:id", UserAuth, adminAuth, TopicController.updateTopic);
+indexRouter.put("/admin/updateTopic/:id", UserAuth, adminAuth, upload.single("image"), TopicController.updateTopic);
 indexRouter.delete("/admin/deleteTopic/:id", UserAuth, adminAuth, TopicController.deleteTopic);
 
 // User Topic Routes
 indexRouter.get("/user/getTopics", UserAuth, TopicController.getTopics);
 indexRouter.get("/user/getTopicDetails/:id", UserAuth, TopicController.getTopicDetails);
 indexRouter.post("/user/recordCompletedTask", UserAuth, TopicController.recordCompletedTask);
+indexRouter.post("/user/resetTopicProgress/:id", UserAuth, TopicController.resetTopicProgress);
 
 indexRouter.get("/list", async (req, res) => {
   try {

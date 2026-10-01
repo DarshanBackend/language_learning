@@ -74,5 +74,5 @@ registerLiveSpeakingSocket(io);
 // Server startup
 const PORT = process.env.PORT || 9000;
 httpServer.listen(PORT, () => {
-  console.log(`✅ Language_Learning Server is running on port : ${PORT}`);
+  console.log(`Language_Learning Server is running on port : ${PORT}`);
 });

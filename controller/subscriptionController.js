@@ -7,9 +7,6 @@ const stripe = new Stripe(
   process.env.STRIPE_SECRET || "sk_test_mock_secret_key"
 );
 
-/**
- * Create Stripe Checkout Session for Pro Plan
- */
 export const createCheckoutSession = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -31,7 +28,7 @@ export const createCheckoutSession = async (req, res) => {
               name: "Lnaguage_Learning Pro subscription",
               description: "Unlock premium AI voice tutoring, unlimited chats, and advanced analytics feedback.",
             },
-            unit_amount: 999, // $9.99
+            unit_amount: 999,
             recurring: {
               interval: "month",
             },
@@ -54,7 +51,7 @@ export const createCheckoutSession = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("❌ Stripe Checkout Session Error:", error.message);
+    console.error("Stripe Checkout Session Error:", error.message);
     return res.status(500).json({
       success: false,
       message: "Stripe billing session generation failed",
@@ -63,9 +60,6 @@ export const createCheckoutSession = async (req, res) => {
   }
 };
 
-/**
- * Handle success callback from Stripe Checkout (simplified for testing/dev environments)
- */
 export const stripeSuccessCallback = async (req, res) => {
   try {
     const { userId, session_id } = req.query;
@@ -74,13 +68,12 @@ export const stripeSuccessCallback = async (req, res) => {
       return res.status(400).send("<h1>Error: Missing required payment details</h1>");
     }
 
-    // Verify session state
     const session = await stripe.checkout.sessions.retrieve(session_id);
     if (session.payment_status === "paid") {
       await UserModel.findByIdAndUpdate(userId, { plan: "pro" });
       return res.send(`
         <div style="font-family: Arial, sans-serif; text-align: center; margin-top: 100px;">
-          <h1 style="color: #8B1E4F;">🎉 Welcome to Lnaguage_Learning Premium!</h1>
+          <h1 style="color: #8B1E4F;">Welcome to Lnaguage_Learning Premium!</h1>
           <p>Your subscription payment was processed successfully.</p>
           <p>You can close this tab and return to the mobile application now.</p>
         </div>
@@ -89,14 +82,11 @@ export const stripeSuccessCallback = async (req, res) => {
       return res.status(400).send("<h1>Payment Verification Failed</h1>");
     }
   } catch (error) {
-    console.error("❌ stripe success callback error:", error.message);
+    console.error("stripe success callback error:", error.message);
     return res.status(500).send("<h1>Server error during payment verification</h1>");
   }
 };
 
-/**
- * Upgrade plan to Pro manually (for in-app purchase validation or sandbox testing)
- */
 export const upgradeToProManual = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -123,9 +113,6 @@ export const upgradeToProManual = async (req, res) => {
   }
 };
 
-/**
- * Downgrade plan to Free
- */
 export const cancelSubscription = async (req, res) => {
   try {
     const userId = req.user._id;

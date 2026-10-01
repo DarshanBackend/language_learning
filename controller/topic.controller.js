@@ -3,6 +3,8 @@ import TopicModel from "../model/topic.model.js";
 import JourneyLessonModel from "../model/journeyLesson.model.js";
 import JourneyQuestionModel from "../model/journeyQuestion.model.js";
 import AnalyticsModel from "../model/analytics.model.js";
+import UserModel from "../model/user.model.js";
+import { uploadFile, deleteFileFromS3 } from "../middleware/imageupload.js";
 import {
   sendSuccessResponse,
   sendCreatedResponse,
@@ -23,7 +25,19 @@ export class TopicController {
    */
   static async createTopic(req, res) {
     try {
-      const { title, description, category, difficulty, languageToLearn, whatYouWillLearn, tasks, journeyLessonId } = req.body;
+      const {
+        title,
+        description,
+        category,
+        categorySubtitle,
+        difficulty,
+        termsCount,
+        image,
+        languageToLearn,
+        whatYouWillLearn,
+        tasks,
+        journeyLessonId,
+      } = req.body;
 
       if (!title || !category || !languageToLearn) {
         return sendBadRequestResponse(res, "Title, category, and languageToLearn are required.");
@@ -40,22 +54,33 @@ export class TopicController {
         }
       }
 
+      // Handle image upload from file or fallback to string body
+      let imageUrl = image || "";
+      if (req.file) {
+        try {
+          const uploadRes = await uploadFile(req.file);
+          imageUrl = uploadRes.url;
+        } catch (uploadErr) {
+          return sendErrorResponse(res, 500, "Failed to upload topic image", uploadErr);
+        }
+      }
+
       // Handle tasks: parses JSON array or splits string list
       let parsedTasks = [];
       if (tasks) {
         if (Array.isArray(tasks)) {
-          parsedTasks = tasks.map(t => ({
+          parsedTasks = tasks.map((t) => ({
             title: t.title ? t.title.trim() : "",
             description: t.description ? t.description.trim() : "",
           }));
         } else {
           try {
-            parsedTasks = JSON.parse(tasks).map(t => ({
+            parsedTasks = JSON.parse(tasks).map((t) => ({
               title: t.title ? t.title.trim() : "",
               description: t.description ? t.description.trim() : "",
             }));
           } catch (e) {
-            parsedTasks = tasks.split(",").map(t => ({
+            parsedTasks = tasks.split(",").map((t) => ({
               title: t.trim(),
               description: "",
             }));
@@ -74,21 +99,30 @@ export class TopicController {
       let parsedLearnList = [];
       if (whatYouWillLearn) {
         if (Array.isArray(whatYouWillLearn)) {
-          parsedLearnList = whatYouWillLearn.map(item => item.trim());
+          parsedLearnList = whatYouWillLearn.map((item) => item.trim());
         } else {
           try {
-            parsedLearnList = JSON.parse(whatYouWillLearn).map(item => item.trim());
+            parsedLearnList = JSON.parse(whatYouWillLearn).map((item) => item.trim());
           } catch (e) {
-            parsedLearnList = whatYouWillLearn.split(",").map(item => item.trim());
+            parsedLearnList = whatYouWillLearn.split(",").map((item) => item.trim());
           }
         }
       }
+
+      const countTerms = termsCount !== undefined && termsCount !== null
+        ? Number(termsCount)
+        : parsedTasks.length > 0
+          ? parsedTasks.length
+          : 0;
 
       const topic = await TopicModel.create({
         title: title.trim(),
         description: description ? description.trim() : "",
         category: category.trim(),
+        categorySubtitle: categorySubtitle ? categorySubtitle.trim() : "",
         difficulty: difficulty || "Easy",
+        termsCount: countTerms,
+        image: imageUrl,
         languageToLearn: languageToLearn.trim(),
         whatYouWillLearn: parsedLearnList,
         journeyLessonId: journeyLessonId || null,
@@ -107,7 +141,19 @@ export class TopicController {
   static async updateTopic(req, res) {
     try {
       const { id } = req.params;
-      const { title, description, category, difficulty, languageToLearn, whatYouWillLearn, tasks, journeyLessonId } = req.body;
+      const {
+        title,
+        description,
+        category,
+        categorySubtitle,
+        difficulty,
+        termsCount,
+        image,
+        languageToLearn,
+        whatYouWillLearn,
+        tasks,
+        journeyLessonId,
+      } = req.body;
 
       if (!mongoose.Types.ObjectId.isValid(id)) {
         return sendBadRequestResponse(res, "Invalid Topic ID");
@@ -122,17 +168,33 @@ export class TopicController {
       if (title !== undefined) updateData.title = title.trim();
       if (description !== undefined) updateData.description = description.trim();
       if (category !== undefined) updateData.category = category.trim();
+      if (categorySubtitle !== undefined) updateData.categorySubtitle = categorySubtitle.trim();
       if (difficulty !== undefined) updateData.difficulty = difficulty;
+      if (termsCount !== undefined) updateData.termsCount = Number(termsCount);
       if (languageToLearn !== undefined) updateData.languageToLearn = languageToLearn.trim();
+
+      if (req.file) {
+        try {
+          if (topic.image) {
+            await deleteFileFromS3(topic.image);
+          }
+          const uploadRes = await uploadFile(req.file);
+          updateData.image = uploadRes.url;
+        } catch (uploadErr) {
+          return sendErrorResponse(res, 500, "Failed to upload topic image", uploadErr);
+        }
+      } else if (image !== undefined) {
+        updateData.image = image;
+      }
 
       if (whatYouWillLearn !== undefined) {
         if (Array.isArray(whatYouWillLearn)) {
-          updateData.whatYouWillLearn = whatYouWillLearn.map(item => item.trim());
+          updateData.whatYouWillLearn = whatYouWillLearn.map((item) => item.trim());
         } else {
           try {
-            updateData.whatYouWillLearn = JSON.parse(whatYouWillLearn).map(item => item.trim());
+            updateData.whatYouWillLearn = JSON.parse(whatYouWillLearn).map((item) => item.trim());
           } catch (e) {
-            updateData.whatYouWillLearn = whatYouWillLearn.split(",").map(item => item.trim());
+            updateData.whatYouWillLearn = whatYouWillLearn.split(",").map((item) => item.trim());
           }
         }
       }
@@ -156,18 +218,18 @@ export class TopicController {
       if (tasks !== undefined) {
         let parsedTasks = [];
         if (Array.isArray(tasks)) {
-          parsedTasks = tasks.map(t => ({
+          parsedTasks = tasks.map((t) => ({
             title: t.title ? t.title.trim() : "",
             description: t.description ? t.description.trim() : "",
           }));
         } else {
           try {
-            parsedTasks = JSON.parse(tasks).map(t => ({
+            parsedTasks = JSON.parse(tasks).map((t) => ({
               title: t.title ? t.title.trim() : "",
               description: t.description ? t.description.trim() : "",
             }));
           } catch (e) {
-            parsedTasks = tasks.split(",").map(t => ({
+            parsedTasks = tasks.split(",").map((t) => ({
               title: t.trim(),
               description: "",
             }));
@@ -179,7 +241,10 @@ export class TopicController {
         }
       }
 
-      const updatedTopic = await TopicModel.findByIdAndUpdate(id, updateData, { new: true, runValidators: true });
+      const updatedTopic = await TopicModel.findByIdAndUpdate(id, updateData, {
+        new: true,
+        runValidators: true,
+      });
       return sendSuccessResponse(res, "Topic updated successfully", updatedTopic);
     } catch (error) {
       return sendErrorResponse(res, 500, error.message, error);
@@ -202,6 +267,10 @@ export class TopicController {
         return sendNotFoundResponse(res, "Topic not found");
       }
 
+      if (topic.image) {
+        await deleteFileFromS3(topic.image);
+      }
+
       await TopicModel.findByIdAndDelete(id);
       return sendSuccessResponse(res, "Topic deleted successfully");
     } catch (error) {
@@ -217,7 +286,7 @@ export class TopicController {
       const topics = await TopicModel.find().populate("journeyLessonId").sort({ createdAt: -1 });
 
       if (topics.length === 0) {
-        return sendBadRequestResponse(res, "No Topics found")
+        return sendBadRequestResponse(res, "No Topics found");
       }
 
       return sendSuccessResponse(res, "Topics retrieved successfully", topics);
@@ -232,7 +301,7 @@ export class TopicController {
 
   /**
    * Get all Topics for the user's selected language,
-   * grouped by category with a "Continue" card for the
+   * grouped by category with category subtitle, and a "Continue" card for the
    * most recently in-progress topic (Figma: Topics screen).
    */
   static async getTopics(req, res) {
@@ -244,12 +313,13 @@ export class TopicController {
 
       const topics = await TopicModel.find({ languageToLearn }).sort({ createdAt: 1 });
       const analytics = await AnalyticsModel.findOne({ userId: req.user._id });
+      const user = await UserModel.findById(req.user._id).select("streakDays");
 
       const mappedTopics = topics.map((topic) => {
         const contentType = topic.journeyLessonId ? "lesson" : "ai_chat";
         let status = "not_started";
         let completedTasksCount = 0;
-        let totalTasksCount = topic.tasks.length;
+        let totalTasksCount = topic.tasks && topic.tasks.length > 0 ? topic.tasks.length : (topic.termsCount || 1);
         let lastActivityAt = null;
 
         if (contentType === "ai_chat") {
@@ -262,7 +332,7 @@ export class TopicController {
             lastActivityAt = record.completedAt;
           }
         } else {
-          // lesson mode: completion is driven by completedLessons for the linked lesson (supports old lessonId field)
+          // lesson mode: completion is driven by completedLessons for the linked lesson
           const record = analytics
             ? analytics.completedLessons
               .filter((cl) => {
@@ -271,10 +341,10 @@ export class TopicController {
               })
               .sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt))[0]
             : null;
-          totalTasksCount = 1; // a lesson counts as one "task" for progress display
+          totalTasksCount = topic.termsCount || 1;
           if (record) {
             status = record.status === "completed" ? "completed" : "started";
-            completedTasksCount = record.status === "completed" ? 1 : 0;
+            completedTasksCount = record.status === "completed" ? totalTasksCount : 1;
             lastActivityAt = record.completedAt;
           }
         }
@@ -284,7 +354,10 @@ export class TopicController {
           title: topic.title,
           description: topic.description,
           category: topic.category,
+          categorySubtitle: topic.categorySubtitle || "",
           difficulty: topic.difficulty,
+          termsCount: topic.termsCount || totalTasksCount,
+          image: topic.image || "",
           languageToLearn: topic.languageToLearn,
           contentType,
           journeyLessonId: topic.journeyLessonId || null,
@@ -302,17 +375,26 @@ export class TopicController {
         .sort((a, b) => new Date(b.lastActivityAt) - new Date(a.lastActivityAt));
       const continueTopic = inProgressTopics.length > 0 ? inProgressTopics[0] : null;
 
-      const categories = {};
+      // Group into categories list with subtitle
+      const categoriesMap = {};
       for (const topic of mappedTopics) {
-        if (!categories[topic.category]) {
-          categories[topic.category] = [];
+        if (!categoriesMap[topic.category]) {
+          categoriesMap[topic.category] = {
+            name: topic.category,
+            subtitle: topic.categorySubtitle || "",
+            topics: [],
+          };
         }
-        categories[topic.category].push(topic);
+        categoriesMap[topic.category].topics.push(topic);
       }
 
+      const categoriesList = Object.values(categoriesMap);
+
       return sendSuccessResponse(res, "Topics fetched successfully", {
+        streakDays: user?.streakDays || 0,
         continue: continueTopic,
-        categories,
+        categories: categoriesList,
+        categoriesMap,
       });
     } catch (error) {
       return sendErrorResponse(res, 500, error.message, error);
@@ -345,7 +427,10 @@ export class TopicController {
         title: topic.title,
         description: topic.description,
         category: topic.category,
+        categorySubtitle: topic.categorySubtitle || "",
         difficulty: topic.difficulty,
+        termsCount: topic.termsCount || (topic.tasks ? topic.tasks.length : 0),
+        image: topic.image || "",
         languageToLearn: topic.languageToLearn,
         whatYouWillLearn: topic.whatYouWillLearn,
         contentType,
@@ -364,11 +449,16 @@ export class TopicController {
             .sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt))[0]
           : null;
 
+        const isCompleted = record ? record.status === "completed" : false;
+        const status = record ? record.status : "not_started";
+
         return sendSuccessResponse(res, "Topic details fetched successfully", {
           ...base,
           lesson,
           questions,
-          isCompleted: record ? record.status === "completed" : false,
+          status,
+          isCompleted,
+          progressPercent: isCompleted ? 100 : status === "started" ? 50 : 0,
         });
       }
 
@@ -377,19 +467,27 @@ export class TopicController {
         ? analytics.completedTopics.find((ct) => ct.topicId === topic._id.toString())
         : null;
       const completedCount = completedRecord ? completedRecord.completedTasksCount : 0;
+      const totalTasks = topic.tasks ? topic.tasks.length : 0;
 
       const tasksWithStatus = (topic.tasks || []).map((task, index) => ({
         _id: task._id,
+        order: index + 1,
         title: task.title,
         description: task.description,
         isCompleted: index < completedCount,
       }));
 
+      const isCompleted = completedRecord ? completedRecord.status === "completed" : false;
+      const status = completedRecord ? completedRecord.status : "not_started";
+
       return sendSuccessResponse(res, "Topic details fetched successfully", {
         ...base,
         tasks: tasksWithStatus,
+        totalTasksCount: totalTasks,
         completedTasksCount: completedCount,
-        isCompleted: completedRecord ? completedRecord.status === "completed" : false,
+        status,
+        isCompleted,
+        progressPercent: totalTasks > 0 ? Math.round((completedCount / totalTasks) * 100) : 0,
       });
     } catch (error) {
       return sendErrorResponse(res, 500, error.message, error);
@@ -398,8 +496,6 @@ export class TopicController {
 
   /**
    * Record a completed task under an AI-chat Topic.
-   * (Only used for contentType = "ai_chat". Lesson-mode topics complete
-   * automatically via recordCompletedLesson / the topic chat controller.)
    */
   static async recordCompletedTask(req, res) {
     try {
@@ -430,12 +526,13 @@ export class TopicController {
         analytics = new AnalyticsModel({ userId });
       }
 
-      let topicRecord = analytics.completedTopics.find(ct => ct.topicId === topicId.toString());
+      let topicRecord = analytics.completedTopics.find((ct) => ct.topicId === topicId.toString());
       if (!topicRecord) {
         topicRecord = {
           topicId: topicId.toString(),
           completedTasksCount: 1,
           status: totalTasks === 1 ? "completed" : "started",
+          completedAt: new Date(),
         };
         analytics.completedTopics.push(topicRecord);
       } else {
@@ -445,6 +542,7 @@ export class TopicController {
         if (topicRecord.completedTasksCount >= totalTasks) {
           topicRecord.status = "completed";
         }
+        topicRecord.completedAt = new Date();
       }
 
       await analytics.save();
@@ -452,8 +550,53 @@ export class TopicController {
       return sendSuccessResponse(res, "Topic task progress recorded successfully", {
         topicId,
         completedTasksCount: topicRecord.completedTasksCount,
+        totalTasksCount: totalTasks,
         status: topicRecord.status,
+        isCompleted: topicRecord.status === "completed",
+        progressPercent: totalTasks > 0 ? Math.round((topicRecord.completedTasksCount / totalTasks) * 100) : 0,
       });
+    } catch (error) {
+      return sendErrorResponse(res, 500, error.message, error);
+    }
+  }
+
+  /**
+   * Reset Topic progress (for "Start from the beginning" / "Start learning again")
+   */
+  static async resetTopicProgress(req, res) {
+    try {
+      const { id } = req.params;
+      const userId = req.user._id;
+
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return sendBadRequestResponse(res, "Invalid Topic ID");
+      }
+
+      const topic = await TopicModel.findById(id);
+      if (!topic) {
+        return sendNotFoundResponse(res, "Topic not found");
+      }
+
+      const analytics = await AnalyticsModel.findOne({ userId });
+      if (!analytics) {
+        return sendSuccessResponse(res, "Topic progress reset successfully");
+      }
+
+      if (topic.journeyLessonId) {
+        // Reset lesson progress
+        analytics.completedLessons = analytics.completedLessons.filter((cl) => {
+          const targetId = cl.journeyLessonId || cl.lessonId;
+          return targetId?.toString() !== topic.journeyLessonId.toString();
+        });
+      } else {
+        // Reset AI chat topic progress
+        analytics.completedTopics = analytics.completedTopics.filter(
+          (ct) => ct.topicId !== topic._id.toString()
+        );
+      }
+
+      await analytics.save();
+      return sendSuccessResponse(res, "Topic progress reset successfully");
     } catch (error) {
       return sendErrorResponse(res, 500, error.message, error);
     }

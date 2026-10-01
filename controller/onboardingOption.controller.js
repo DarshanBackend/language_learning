@@ -60,7 +60,7 @@ export class OnboardingOptionController {
 
       return sendSuccessResponse(res, "All onboarding options loaded successfully.", data);
     } catch (error) {
-      console.error("❌ Get All Onboarding Options Error:", error.message);
+      console.error("Get All Onboarding Options Error:", error.message);
       return sendErrorResponse(res, 500, "Failed to aggregate onboarding options", error);
     }
   }

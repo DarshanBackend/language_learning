@@ -142,7 +142,7 @@ export class AuthController {
         },
       });
     } catch (error) {
-      console.error("❌ Registration Error:", error.message);
+      console.error("Registration Error:", error.message);
       return res.status(500).json({
         success: false,
         message: "Failed to register user",
@@ -222,7 +222,7 @@ export class AuthController {
         },
       });
     } catch (error) {
-      console.error("❌ Login Error:", error.message);
+      console.error("Login Error:", error.message);
       return res.status(500).json({
         success: false,
         message: "Failed to log in",
@@ -298,7 +298,7 @@ export class AuthController {
         result: { email, otp: OTP }, // returning OTP directly for convenience in testing/dev
       });
     } catch (error) {
-      console.error("❌ Forgot Password OTP Error:", error.message);
+      console.error("Forgot Password OTP Error:", error.message);
       return res.status(500).json({
         success: false,
         message: "Failed to send reset email OTP.",
@@ -352,7 +352,7 @@ export class AuthController {
         message: "OTP verified successfully. You can now reset your password.",
       });
     } catch (error) {
-      console.error("❌ Verify OTP Error:", error.message);
+      console.error("Verify OTP Error:", error.message);
       return res.status(500).json({
         success: false,
         message: "Failed to verify OTP",
@@ -403,7 +403,7 @@ export class AuthController {
         message: "Password reset successful. Please login with your new password.",
       });
     } catch (error) {
-      console.error("❌ Reset Password Error:", error.message);
+      console.error("Reset Password Error:", error.message);
       return res.status(500).json({
         success: false,
         message: "Failed to reset password",
@@ -454,7 +454,7 @@ export class AuthController {
         message: "Password changed successfully.",
       });
     } catch (error) {
-      console.error("❌ Change Password Error:", error.message);
+      console.error("Change Password Error:", error.message);
       return res.status(500).json({
         success: false,
         message: "Failed to change password",
@@ -481,7 +481,7 @@ export class AuthController {
         result: user,
       });
     } catch (error) {
-      console.error("❌ Get User Error:", error.message);
+      console.error("Get User Error:", error.message);
       return res.status(500).json({
         success: false,
         message: "Error fetching user data",
@@ -539,7 +539,7 @@ export class AuthController {
         message: "FCM Token updated successfully",
       });
     } catch (error) {
-      console.error("❌ Update FCM Token Error:", error.message);
+      console.error("Update FCM Token Error:", error.message);
       return res.status(500).json({
         success: false,
         message: "Error updating FCM Token",

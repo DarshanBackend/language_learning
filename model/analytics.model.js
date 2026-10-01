@@ -1,5 +1,27 @@
 import mongoose from "mongoose";
 
+const CompletedQuestionSchema = new mongoose.Schema({
+  questionId: {
+    type: String,
+    required: [true, "Question ID is required"],
+  },
+  journeyLessonId: {
+    type: String,
+  },
+  isCorrect: {
+    type: Boolean,
+    default: true,
+  },
+  score: {
+    type: Number,
+    default: 100,
+  },
+  completedAt: {
+    type: Date,
+    default: Date.now,
+  },
+});
+
 const CompletedLessonSchema = new mongoose.Schema({
   journeyLessonId: {
     type: String,
@@ -67,6 +89,7 @@ const AnalyticsSchema = new mongoose.Schema({
     min: 0,
     max: 100,
   },
+  completedQuestions: [CompletedQuestionSchema],
   completedLessons: [CompletedLessonSchema],
   completedTopics: [CompletedTopicSchema],
 }, { timestamps: true });

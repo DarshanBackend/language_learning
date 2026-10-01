@@ -12,7 +12,6 @@ import {
 
 dotenv.config();
 
-// AWS S3 Client
 const s3 = new S3Client({
   region: process.env.S3_REGION,
   credentials: {
@@ -26,13 +25,11 @@ export const upload = multer({
   limits: { fileSize: 200 * 1024 * 1024 },
 });
 
-// Function to upload a single file to S3
 export const uploadFile = async (file) => {
   if (!file) throw new Error("No file provided");
 
   const ext = path.extname(file.originalname).toLowerCase();
 
-  // If image, optionally convert
   let buffer = file.buffer;
   let contentType = file.mimetype;
 
@@ -44,12 +41,10 @@ export const uploadFile = async (file) => {
     }
   }
 
-  // Generate key - remove spaces from filename
   const cleanFileName = file.originalname.replace(/\s+/g, "_");
   const fileName = `${Date.now()}_${cleanFileName}`;
   const key = `uploads/${fileName}`;
 
-  // Upload with public read access
   await s3.send(
     new PutObjectCommand({
       Bucket: process.env.S3_BUCKET_NAME,
@@ -73,15 +68,11 @@ export const uploadPDF = async (file, folder = "uploads") => {
     throw new Error("Only PDF files are allowed");
   }
 
-  // Clean file name: replace spaces with underscores
   const cleanName = file.originalname.replace(/\s+/g, "_");
-
-  // Use timestamp + cleaned name for uniqueness
   const timestamp = Date.now();
   const fileName = `${timestamp}-${cleanName}`;
   const key = `${folder}/${fileName}`;
 
-  // Upload PDF to S3
   await s3.send(
     new PutObjectCommand({
       Bucket: process.env.S3_BUCKET_NAME,
@@ -111,11 +102,10 @@ export const deleteFileFromS3 = async (fileUrl) => {
       })
     );
   } catch (err) {
-    console.error("❌ Error deleting from S3:", err.message);
+    console.error("Error deleting from S3:", err.message);
   }
 };
 
-// List all files in the bucket
 export const listBucketObjects = async () => {
   try {
     const data = await s3.send(
@@ -131,12 +121,11 @@ export const listBucketObjects = async () => {
       lastModified: item.LastModified,
     }));
   } catch (error) {
-    console.error("❌ Error listing S3 objects:", error.message);
+    console.error("Error listing S3 objects:", error.message);
     throw error;
   }
 };
 
-// Delete multiple keys from S3
 export const deleteManyFromS3 = async (keys) => {
   try {
     if (!keys || !keys.length) return;
@@ -151,7 +140,7 @@ export const deleteManyFromS3 = async (keys) => {
       })
     );
   } catch (err) {
-    console.error("❌ Error deleting many files from S3:", err.message);
+    console.error("Error deleting many files from S3:", err.message);
     throw err;
   }
 };

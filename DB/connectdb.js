@@ -10,7 +10,7 @@ mongoose.connection.on('close', () => console.log('close'));
 export async function connectDB(DB_URL) {
     try {
         const connect = await mongoose.connect(DB_URL);
-        console.log(`✅ Database connected Successfully AND HOST is ${connect.connection.host}`)
+        console.log(`Database connected Successfully AND HOST is ${connect.connection.host}`)
     } catch (error) {
         console.error("Error While Connecting Database!");
         process.exit(1)

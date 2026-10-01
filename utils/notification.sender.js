@@ -18,17 +18,16 @@ try {
             credential: admin.credential.cert(serviceAccount)
         });
 
-        console.log("✅ Firebase Admin Initialized Successfully");
+        console.log("Firebase Admin Initialized Successfully");
         isFirebaseInitialized = true;
     } else {
-        console.warn("⚠️ Firebase Service Account Key not found at:", serviceAccountPath);
-        console.warn("⚠️ Push notifications will NOT be sent until 'serviceAccountKey.json' is added.");
+        console.warn("Firebase Service Account Key not found at:", serviceAccountPath);
+        console.warn("Push notifications will NOT be sent until 'serviceAccountKey.json' is added.");
     }
 } catch (error) {
-    console.error("❌ Firebase Initialization Error:", error.message);
+    console.error("Firebase Initialization Error:", error.message);
 }
 
-// Helper to ensure all data values are strings (FCM v1 API requirement)
 const stringifyData = (data) => {
     const result = {};
     for (const [key, value] of Object.entries(data)) {
@@ -43,12 +42,12 @@ const stringifyData = (data) => {
 
 export const sendPushNotification = async (token, title, body, data = {}) => {
     if (!isFirebaseInitialized) {
-        console.error("❌ Firebase is not initialized. Cannot send notification.");
+        console.error("Firebase is not initialized. Cannot send notification.");
         return false;
     }
 
     if (!token) {
-        console.error("❌ No token provided for notification.");
+        console.error("No token provided for notification.");
         return false;
     }
 
@@ -89,23 +88,23 @@ export const sendPushNotification = async (token, title, body, data = {}) => {
             }
         };
 
-        console.log(`📤 Sending Notification to Token: ${token.substring(0, 20)}...`);
-        console.log(`📦 Payload: ${JSON.stringify(message, null, 2)}`);
+        console.log(`Sending Notification to Token: ${token.substring(0, 20)}...`);
+        console.log(`Payload: ${JSON.stringify(message, null, 2)}`);
 
         const response = await admin.messaging().send(message);
-        console.log("✅ Notification sent successfully. Message ID:", response);
+        console.log("Notification sent successfully. Message ID:", response);
         return true;
     } catch (error) {
-        console.error("❌ Error sending notification:", error.code, error.message);
+        console.error("Error sending notification:", error.code, error.message);
         if (error.code === 'messaging/registration-token-not-registered') {
-            console.warn("⚠️ Token is invalid/expired, consider removing it from DB.");
+            console.warn("Token is invalid/expired, consider removing it from DB.");
             return 'INVALID_TOKEN';
         }
         if (error.code === 'messaging/invalid-argument') {
-            console.error("⚠️ Invalid argument in message payload. Check data fields.");
+            console.error("Invalid argument in message payload. Check data fields.");
         }
         if (error.code === 'messaging/third-party-auth-error') {
-            console.error("⚠️ FCM auth error. Check your serviceAccountKey.json and Firebase project settings.");
+            console.error("FCM auth error. Check your serviceAccountKey.json and Firebase project settings.");
         }
         return false;
     }
@@ -113,19 +112,18 @@ export const sendPushNotification = async (token, title, body, data = {}) => {
 
 export const sendMulticastNotification = async (tokens, title, body, data = {}) => {
     if (!isFirebaseInitialized) {
-        console.error("❌ Firebase is not initialized. Cannot send multicast notification.");
+        console.error("Firebase is not initialized. Cannot send multicast notification.");
         return false;
     }
 
     if (!tokens || tokens.length === 0) {
-        console.error("❌ No tokens provided for multicast notification.");
+        console.error("No tokens provided for multicast notification.");
         return false;
     }
 
-    // Filter out any null/undefined/empty tokens
     const validTokens = tokens.filter(t => t && typeof t === 'string' && t.trim().length > 0);
     if (validTokens.length === 0) {
-        console.error("❌ No valid tokens after filtering.");
+        console.error("No valid tokens after filtering.");
         return false;
     }
 
@@ -183,15 +181,15 @@ export const sendMulticastNotification = async (tokens, title, body, data = {}) 
             if (response.failureCount > 0) {
                 response.responses.forEach((resp, idx) => {
                     if (!resp.success) {
-                        console.warn(`⚠️ Failed token: ${batchTokens[idx]?.substring(0, 20)}... | Error: ${resp.error?.code} - ${resp.error?.message}`);
+                        console.warn(`Failed token: ${batchTokens[idx]?.substring(0, 20)}... | Error: ${resp.error?.code} - ${resp.error?.message}`);
                     }
                 });
             }
         } catch (error) {
-            console.error("❌ Error sending multicast batch:", error.code, error.message);
+            console.error("Error sending multicast batch:", error.code, error.message);
         }
     }
 
-    console.log(`✅ Multicast Summary: Sent ${successCount}, Failed ${failureCount}`);
+    console.log(`Multicast Summary: Sent ${successCount}, Failed ${failureCount}`);
     return { successCount, failureCount };
 };

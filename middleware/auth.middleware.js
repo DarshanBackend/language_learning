@@ -4,13 +4,10 @@ import { sendErrorResponse, sendUnauthorizedResponse, sendNotFoundResponse } fro
 import dotenv from "dotenv";
 dotenv.config();
 
-/**
- * Middleware to authenticate requests via JWT tokens
- */
 export const UserAuth = async (req, res, next) => {
   try {
     if (!process.env.JWT_SECRET) {
-      console.error("❌ JWT_SECRET is not configured in environment variables.");
+      console.error("JWT_SECRET is not configured in environment variables.");
       return sendErrorResponse(res, 500, "Server configuration error");
     }
 
@@ -34,7 +31,7 @@ export const UserAuth = async (req, res, next) => {
       req.user = user;
       next();
     } catch (err) {
-      console.error("⚠️ Token verification failed:", err.message);
+      console.error("Token verification failed:", err.message);
       return sendUnauthorizedResponse(res, "Access denied. Invalid token.");
     }
   } catch (error) {
@@ -42,9 +39,6 @@ export const UserAuth = async (req, res, next) => {
   }
 };
 
-/**
- * Middleware to restrict route to admin role
- */
 export const adminAuth = (req, res, next) => {
   if (!req.user || req.user.role !== "admin") {
     return sendUnauthorizedResponse(res, "Access Denied. Admins only.");
