@@ -4,35 +4,7 @@ import ChatSessionModel from "../model/chatSession.model.js";
 import UserModel from "../model/user.model.js";
 import AnalyticsModel from "../model/analytics.model.js";
 import { sendBadRequestResponse, sendNotFoundResponse } from "../utils/Response.utils.js";
-
-const updateStreak = async (user) => {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-  if (!user.lastPracticedDate) {
-    user.streakDays = 1;
-  } else {
-    const lastPracticed = new Date(user.lastPracticedDate);
-    const lastPracticedDay = new Date(
-      lastPracticed.getFullYear(),
-      lastPracticed.getMonth(),
-      lastPracticed.getDate()
-    );
-
-    const diffTime = today - lastPracticedDay;
-    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays === 1) {
-      user.streakDays += 1;
-    } else if (diffDays > 1) {
-      user.streakDays = 1;
-    }
-  }
-
-  user.lastPracticedDate = now;
-  await user.save();
-  return user.streakDays;
-};
+import { recordUserPractice } from "./user.controller.js";
 
 const updateAnalytics = async (userId, grammarScore) => {
   try {
@@ -148,7 +120,7 @@ export const handleVoiceMessage = async (req, res) => {
       console.error("TTS Generation failed, continuing with text only:", err.message);
     }
 
-    const updatedStreak = await updateStreak(user);
+    const updatedStreak = await recordUserPractice(user);
     await updateAnalytics(userId, grammarScore);
 
     chatSession.messages.push({

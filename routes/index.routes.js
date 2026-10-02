@@ -6,6 +6,7 @@ import {
   getSettings,
   updateSettings,
   getAnalytics,
+  getInsights,
   recordCompletedLesson,
   deleteAccount,
 } from "../controller/user.controller.js";
@@ -91,6 +92,7 @@ indexRouter.get("/user/getSettings", UserAuth, getSettings);
 
 indexRouter.patch("/user/updateAnalytics", UserAuth, recordCompletedLesson);
 indexRouter.get("/user/getAnalytics", UserAuth, getAnalytics);
+indexRouter.get("/user/getInsights", UserAuth, getInsights);
 
 indexRouter.delete("/user/deleteAccount", UserAuth, deleteAccount);
 

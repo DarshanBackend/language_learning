@@ -5,6 +5,7 @@ import AnalyticsModel from "../model/analytics.model.js";
 import TopicModel from "../model/topic.model.js";
 import LanguageToLearnModel from "../model/languageToLearn.model.js";
 import UserModel from "../model/user.model.js";
+import { recordUserPractice } from "./user.controller.js";
 import { uploadFile, deleteFileFromS3 } from "../middleware/imageupload.js";
 import { transcribeAudio, translateText, translateArray } from "../services/aiService.js";
 import axios from "axios";
@@ -1123,7 +1124,6 @@ export class JourneyController {
       );
       const completedQIdSet = new Set(
         (analytics?.completedQuestions || [])
-          .filter((cq) => cq.isCorrect)
           .map((cq) => cq.questionId?.toString())
       );
 
@@ -1183,7 +1183,6 @@ export class JourneyController {
 
       const completedQIdSet = new Set(
         (analytics?.completedQuestions || [])
-          .filter((cq) => cq.isCorrect)
           .map((cq) => cq.questionId?.toString())
       );
 
@@ -1222,7 +1221,6 @@ export class JourneyController {
 
       const completedQIdSet = new Set(
         (analytics?.completedQuestions || [])
-          .filter((cq) => cq.isCorrect)
           .map((cq) => cq.questionId?.toString())
       );
 
@@ -1331,7 +1329,6 @@ export class JourneyController {
 
       const completedQIdSet = new Set(
         (analytics?.completedQuestions || [])
-          .filter((cq) => cq.isCorrect)
           .map((cq) => cq.questionId?.toString())
       );
 
@@ -1400,7 +1397,6 @@ export class JourneyController {
 
       const completedQIdSet = new Set(
         (analytics?.completedQuestions || [])
-          .filter((cq) => cq.isCorrect)
           .map((cq) => cq.questionId?.toString())
       );
 
@@ -1516,23 +1512,21 @@ export class JourneyController {
       const qIdStr = question._id.toString();
       const lessonIdStr = question.journeyLessonId.toString();
 
-      if (isCorrect) {
-        const existingQ = analytics.completedQuestions.find(
-          (cq) => cq.questionId?.toString() === qIdStr
-        );
-        if (!existingQ) {
-          analytics.completedQuestions.push({
-            questionId: qIdStr,
-            journeyLessonId: lessonIdStr,
-            isCorrect: true,
-            score: score,
-            completedAt: new Date(),
-          });
-        } else {
-          existingQ.isCorrect = true;
-          existingQ.score = Math.max(existingQ.score || 0, score);
-          existingQ.completedAt = new Date();
-        }
+      const existingQ = analytics.completedQuestions.find(
+        (cq) => cq.questionId?.toString() === qIdStr
+      );
+      if (!existingQ) {
+        analytics.completedQuestions.push({
+          questionId: qIdStr,
+          journeyLessonId: lessonIdStr,
+          isCorrect,
+          score,
+          completedAt: new Date(),
+        });
+      } else {
+        existingQ.isCorrect = isCorrect;
+        existingQ.score = score;
+        existingQ.completedAt = new Date();
       }
 
       // Check if all active questions of this lesson are completed
@@ -1543,7 +1537,6 @@ export class JourneyController {
 
       const completedQIdSet = new Set(
         analytics.completedQuestions
-          .filter((cq) => cq.isCorrect)
           .map((cq) => cq.questionId?.toString())
       );
 
@@ -1559,22 +1552,37 @@ export class JourneyController {
           (cl) => (cl.journeyLessonId || cl.lessonId)?.toString() === lessonIdStr
         );
 
+        let totalScoreSum = 0;
+        allLessonQuestions.forEach((q) => {
+          const cq = analytics.completedQuestions.find(
+            (item) => item.questionId?.toString() === q._id.toString()
+          );
+          if (cq) {
+            totalScoreSum += cq.score || 0;
+          }
+        });
+
+        const lessonScore =
+          allLessonQuestions.length > 0
+            ? Math.round(totalScoreSum / allLessonQuestions.length)
+            : score;
+
         if (!existingLesson) {
           analytics.completedLessons.push({
             journeyLessonId: question.journeyLessonId,
             status: "completed",
-            score: score,
+            score: lessonScore,
             completedAt: new Date(),
           });
         } else {
           existingLesson.status = "completed";
-          existingLesson.score = Math.max(existingLesson.score || 0, score);
+          existingLesson.score = lessonScore;
           existingLesson.completedAt = new Date();
         }
 
         analytics.speakingTrendScore = Math.min(
           100,
-          Math.round(analytics.speakingTrendScore * 0.9 + score * 0.1)
+          Math.round(analytics.speakingTrendScore * 0.9 + lessonScore * 0.1)
         );
         analytics.vocabularyTrendScore = Math.min(
           100,
@@ -1585,6 +1593,7 @@ export class JourneyController {
       }
 
       await analytics.save();
+      await recordUserPractice(req.user._id);
 
       return sendSuccessResponse(res, "Voice checked successfully", {
         transcribedText,
@@ -1638,23 +1647,21 @@ export class JourneyController {
       const qIdStr = question._id.toString();
       const lessonIdStr = question.journeyLessonId.toString();
 
-      if (isCorrect) {
-        const existingQ = analytics.completedQuestions.find(
-          (cq) => cq.questionId?.toString() === qIdStr
-        );
-        if (!existingQ) {
-          analytics.completedQuestions.push({
-            questionId: qIdStr,
-            journeyLessonId: lessonIdStr,
-            isCorrect: true,
-            score: 100,
-            completedAt: new Date(),
-          });
-        } else {
-          existingQ.isCorrect = true;
-          existingQ.score = 100;
-          existingQ.completedAt = new Date();
-        }
+      const existingQ = analytics.completedQuestions.find(
+        (cq) => cq.questionId?.toString() === qIdStr
+      );
+      if (!existingQ) {
+        analytics.completedQuestions.push({
+          questionId: qIdStr,
+          journeyLessonId: lessonIdStr,
+          isCorrect,
+          score: isCorrect ? 100 : 0,
+          completedAt: new Date(),
+        });
+      } else {
+        existingQ.isCorrect = isCorrect;
+        existingQ.score = isCorrect ? 100 : 0;
+        existingQ.completedAt = new Date();
       }
 
       // Check if all active questions of this lesson are completed
@@ -1665,7 +1672,6 @@ export class JourneyController {
 
       const completedQIdSet = new Set(
         analytics.completedQuestions
-          .filter((cq) => cq.isCorrect)
           .map((cq) => cq.questionId?.toString())
       );
 
@@ -1681,22 +1687,39 @@ export class JourneyController {
           (cl) => (cl.journeyLessonId || cl.lessonId)?.toString() === lessonIdStr
         );
 
+        let totalScoreSum = 0;
+        allLessonQuestions.forEach((q) => {
+          const cq = analytics.completedQuestions.find(
+            (item) => item.questionId?.toString() === q._id.toString()
+          );
+          if (cq) {
+            totalScoreSum += cq.score || 0;
+          }
+        });
+
+        const lessonScore =
+          allLessonQuestions.length > 0
+            ? Math.round(totalScoreSum / allLessonQuestions.length)
+            : isCorrect
+            ? 100
+            : 0;
+
         if (!existingLesson) {
           analytics.completedLessons.push({
             journeyLessonId: question.journeyLessonId,
             status: "completed",
-            score: isCorrect ? 100 : 0,
+            score: lessonScore,
             completedAt: new Date(),
           });
         } else {
           existingLesson.status = "completed";
-          existingLesson.score = isCorrect ? 100 : existingLesson.score || 0;
+          existingLesson.score = lessonScore;
           existingLesson.completedAt = new Date();
         }
 
         analytics.listeningTrendScore = Math.min(
           100,
-          Math.round(analytics.listeningTrendScore * 0.9 + (isCorrect ? 10 : 0))
+          Math.round(analytics.listeningTrendScore * 0.9 + lessonScore * 0.1)
         );
         analytics.vocabularyTrendScore = Math.min(
           100,
@@ -1707,6 +1730,7 @@ export class JourneyController {
       }
 
       await analytics.save();
+      await recordUserPractice(req.user._id);
 
       return sendSuccessResponse(res, "Question verified successfully", {
         questionId,
@@ -1731,44 +1755,58 @@ export class JourneyController {
         return sendBadRequestResponse(res, "Invalid Lesson ID");
       }
 
-      let analytics = await AnalyticsModel.findOne({ userId });
-      if (analytics) {
-        const lessonIdStr = lessonId.toString();
-        const initialLength = analytics.completedLessons.length;
-        analytics.completedLessons = analytics.completedLessons.filter(
-          (cl) => (cl.journeyLessonId || cl.lessonId)?.toString() !== lessonIdStr
-        );
-
-        if (analytics.completedQuestions) {
-          analytics.completedQuestions = analytics.completedQuestions.filter(
-            (cq) => cq.journeyLessonId?.toString() !== lessonIdStr
-          );
-        }
-
-        const lesson = await JourneyLessonModel.findById(lessonId);
-        if (lesson && lesson.journeyTopicId) {
-          const journeyTopicIdStr = lesson.journeyTopicId.toString();
-          const allLessons = await JourneyLessonModel.find({ journeyTopicId: lesson.journeyTopicId });
-          const allLessonIds = allLessons.map((l) => l._id.toString());
-          const remainingCompleted = analytics.completedLessons
-            .filter((cl) => cl.status === "completed" && allLessonIds.includes((cl.journeyLessonId || cl.lessonId)?.toString()))
-            .length;
-
-          const topicRecord = analytics.completedTopics.find((ct) => ct.topicId === journeyTopicIdStr);
-          if (topicRecord) {
-            topicRecord.completedTasksCount = remainingCompleted;
-            topicRecord.status = remainingCompleted === allLessons.length && allLessons.length > 0 ? "completed" : "started";
-            if (topicRecord.status !== "completed") {
-              topicRecord.completedAt = null;
-            }
-          }
-        }
-
-        await analytics.save();
-        return sendSuccessResponse(res, "Lesson completion status reset successfully.");
+      const lesson = await JourneyLessonModel.findById(lessonId);
+      if (!lesson) {
+        return sendNotFoundResponse(res, "Lesson not found");
       }
 
-      return sendSuccessResponse(res, "Lesson was not marked as completed anyway.");
+      let analytics = await AnalyticsModel.findOne({ userId });
+      if (!analytics) {
+        return sendSuccessResponse(res, "Lesson is already reset.");
+      }
+
+      const lessonIdStr = lessonId.toString();
+      const isLessonCompleted = (analytics.completedLessons || []).some(
+        (cl) => (cl.journeyLessonId || cl.lessonId)?.toString() === lessonIdStr
+      );
+      const hasCompletedQuestions = (analytics.completedQuestions || []).some(
+        (cq) => cq.journeyLessonId?.toString() === lessonIdStr
+      );
+
+      if (!isLessonCompleted && !hasCompletedQuestions) {
+        return sendSuccessResponse(res, "Lesson is already reset.");
+      }
+
+      analytics.completedLessons = (analytics.completedLessons || []).filter(
+        (cl) => (cl.journeyLessonId || cl.lessonId)?.toString() !== lessonIdStr
+      );
+
+      if (analytics.completedQuestions) {
+        analytics.completedQuestions = analytics.completedQuestions.filter(
+          (cq) => cq.journeyLessonId?.toString() !== lessonIdStr
+        );
+      }
+
+      if (lesson.journeyTopicId) {
+        const journeyTopicIdStr = lesson.journeyTopicId.toString();
+        const allLessons = await JourneyLessonModel.find({ journeyTopicId: lesson.journeyTopicId });
+        const allLessonIds = allLessons.map((l) => l._id.toString());
+        const remainingCompleted = analytics.completedLessons
+          .filter((cl) => cl.status === "completed" && allLessonIds.includes((cl.journeyLessonId || cl.lessonId)?.toString()))
+          .length;
+
+        const topicRecord = (analytics.completedTopics || []).find((ct) => ct.topicId === journeyTopicIdStr);
+        if (topicRecord) {
+          topicRecord.completedTasksCount = remainingCompleted;
+          topicRecord.status = remainingCompleted === allLessons.length && allLessons.length > 0 ? "completed" : "started";
+          if (topicRecord.status !== "completed") {
+            topicRecord.completedAt = null;
+          }
+        }
+      }
+
+      await analytics.save();
+      return sendSuccessResponse(res, "Lesson completion status reset successfully.");
     } catch (error) {
       return sendErrorResponse(res, 500, error.message, error);
     }

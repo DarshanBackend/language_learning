@@ -4,6 +4,7 @@ import JourneyLessonModel from "../model/journeyLesson.model.js";
 import JourneyQuestionModel from "../model/journeyQuestion.model.js";
 import AnalyticsModel from "../model/analytics.model.js";
 import UserModel from "../model/user.model.js";
+import { recordUserPractice } from "./user.controller.js";
 import { uploadFile, deleteFileFromS3 } from "../middleware/imageupload.js";
 import {
   sendSuccessResponse,
@@ -546,6 +547,7 @@ export class TopicController {
       }
 
       await analytics.save();
+      await recordUserPractice(userId);
 
       return sendSuccessResponse(res, "Topic task progress recorded successfully", {
         topicId,

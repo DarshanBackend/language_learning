@@ -84,6 +84,10 @@ const UserSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    practiceHistory: {
+      type: [String],
+      default: [],
+    },
     onboarding: {
       type: OnboardingSchema,
       default: null,
