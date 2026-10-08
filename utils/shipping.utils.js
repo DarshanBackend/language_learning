@@ -1,9 +1,9 @@
-// utils/shipping.utils.js
+
 import axios from "axios";
 
 export const utilGetShippingEstimate = async (postcode, state) => {
   try {
-    // 🔍 Validate input
+
     if (!postcode || typeof postcode !== "string" || !/^\d{4}$/.test(postcode.trim())) {
       const err = new Error("Invalid 4-digit Australian postcode.");
       err.isValidationError = true;
@@ -56,9 +56,9 @@ export const utilGetShippingEstimate = async (postcode, state) => {
       throw err;
     }
 
-    // 📦 Step 2: Fetch shipping estimate from AusPost
+
     const queryParams = new URLSearchParams({
-      from_postcode: "2000", // your warehouse postcode
+      from_postcode: "2000", 
       to_postcode: cleanedPostcode,
       length: "22",
       width: "16",
@@ -91,14 +91,14 @@ export const utilGetShippingEstimate = async (postcode, state) => {
       service: result.service || "Unknown",
     };
   } catch (err) {
-    // Just rethrow tagged errors for controller to handle
+
     throw err;
   }
 };
 
 export const utilGetShippingEstimateByPostcodeOnly = async (postcode) => {
   try {
-    // Validate postcode
+
     if (!postcode || typeof postcode !== "string" || !/^\d{4}$/.test(postcode.trim())) {
       return { success: false, message: "Invalid 4-digit Australian postcode." };
     }
@@ -106,7 +106,7 @@ export const utilGetShippingEstimateByPostcodeOnly = async (postcode) => {
     const cleanedPostcode = postcode.trim();
     const API_KEY = "92944ac9-842b-46e1-b527-766ddaa48d20";
 
-    // Lookup postcode
+
     let apiRES;
     try {
       apiRES = await axios.get(`https://australiansuburbs.au/api/lookup_postcode?postcode=${cleanedPostcode}`);
@@ -121,7 +121,7 @@ export const utilGetShippingEstimateByPostcodeOnly = async (postcode) => {
 
     const detectedState = data.state;
 
-    // Fetch AusPost shipping
+
     const queryParams = new URLSearchParams({
       from_postcode: "2000",
       to_postcode: cleanedPostcode,
@@ -147,7 +147,7 @@ export const utilGetShippingEstimateByPostcodeOnly = async (postcode) => {
       return { success: false, message: "No shipping rate found." };
     }
 
-    // SUCCESS RESPONSE
+
     return {
       success: true,
       postcode: cleanedPostcode,

@@ -2,12 +2,14 @@ import UserModel from "../model/user.model.js";
 import UserSettingsModel from "../model/userSettings.model.js";
 import AnalyticsModel from "../model/analytics.model.js";
 import ChatSessionModel from "../model/chatSession.model.js";
+import TopicChatModel from "../model/topicChat.model.js";
 import JourneyLessonModel from "../model/journeyLesson.model.js";
 import JourneyTopicModel from "../model/journeyTopic.model.js";
 import JourneyQuestionModel from "../model/journeyQuestion.model.js";
 import TopicModel from "../model/topic.model.js";
 import { uploadFile, deleteFileFromS3 } from "../middleware/imageupload.js";
 import { JourneyController } from "./journey.controller.js";
+import { checkUserSubscriptionAccess } from "../middleware/auth.middleware.js";
 
 const formatDate = (date) => {
   const d = new Date(date);
@@ -16,6 +18,43 @@ const formatDate = (date) => {
   const day = String(d.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 };
+
+const getMidnightTimestamp = (date) => {
+  const d = new Date(date);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+};
+
+const getDaysDifference = (date1, date2) => {
+  const msPerDay = 1000 * 60 * 60 * 24;
+  const t1 = getMidnightTimestamp(date1);
+  const t2 = getMidnightTimestamp(date2);
+  return Math.round((t1 - t2) / msPerDay);
+};
+
+
+export const syncUserStreak = async (userOrId) => {
+  try {
+    let user = typeof userOrId === "object" && userOrId !== null && userOrId._id
+      ? userOrId
+      : await UserModel.findById(userOrId);
+
+    if (!user || !user.lastPracticedDate) return 0;
+
+    const now = new Date();
+    const diffDays = getDaysDifference(now, user.lastPracticedDate);
+
+
+    if (diffDays > 1 && user.streakDays > 0) {
+      user.streakDays = 0;
+      await user.save();
+    }
+
+    return user.streakDays || 0;
+  } catch (err) {
+    return 0;
+  }
+};
+
 
 export const recordUserPractice = async (userOrId) => {
   try {
@@ -37,24 +76,19 @@ export const recordUserPractice = async (userOrId) => {
     }
 
     if (!user.lastPracticedDate) {
+
       user.streakDays = 1;
     } else {
-      const lastPracticed = new Date(user.lastPracticedDate);
-      const lastPracticedDay = new Date(
-        lastPracticed.getFullYear(),
-        lastPracticed.getMonth(),
-        lastPracticed.getDate()
-      );
-      const todayDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const diffDays = getDaysDifference(now, user.lastPracticedDate);
 
-      const diffTime = todayDay - lastPracticedDay;
-      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      if (diffDays === 0) {
 
-      if (diffDays === 1) {
+        user.streakDays = Math.max(1, user.streakDays || 1);
+      } else if (diffDays === 1) {
+
         user.streakDays = (user.streakDays || 0) + 1;
-      } else if (diffDays > 1) {
-        user.streakDays = 1;
-      } else if (diffDays === 0 && (!user.streakDays || user.streakDays === 0)) {
+      } else {
+
         user.streakDays = 1;
       }
     }
@@ -75,6 +109,9 @@ export const getProfile = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
+    await syncUserStreak(user);
+    const accessInfo = await checkUserSubscriptionAccess(user);
+
     let settings = await UserSettingsModel.findOne({ userId: req.user._id });
     if (!settings) {
       settings = await UserSettingsModel.create({ userId: req.user._id });
@@ -86,6 +123,7 @@ export const getProfile = async (req, res) => {
       result: {
         ...user.toObject(),
         settings,
+        subscriptionStatus: accessInfo,
       },
     });
   } catch (error) {
@@ -174,11 +212,17 @@ export const updateSettings = async (req, res) => {
     }
 
     if (notifications) {
+      if (notifications.status !== undefined) {
+        settings.notifications.status = notifications.status;
+      }
       if (notifications.dailyPracticeReminder !== undefined) {
         settings.notifications.dailyPracticeReminder = notifications.dailyPracticeReminder;
       }
       if (notifications.dailyReminderTime !== undefined) {
         settings.notifications.dailyReminderTime = notifications.dailyReminderTime;
+      }
+      if (notifications.streakReminder !== undefined) {
+        settings.notifications.streakReminder = notifications.streakReminder;
       }
       if (notifications.streakFreezeAlert !== undefined) {
         settings.notifications.streakFreezeAlert = notifications.streakFreezeAlert;
@@ -338,7 +382,7 @@ export const getInsights = async (req, res) => {
       });
     }
 
-    const streakCount = user.streakDays || 0;
+    const streakCount = await syncUserStreak(user);
     const weeklyGoal = 7;
     const daysToWeeklyGoal = Math.max(0, weeklyGoal - daysPracticedThisWeek);
 
@@ -676,6 +720,7 @@ export const deleteAccount = async (req, res) => {
     await UserSettingsModel.findOneAndDelete({ userId });
     await AnalyticsModel.findOneAndDelete({ userId });
     await ChatSessionModel.deleteMany({ userId });
+    await TopicChatModel.deleteMany({ userId });
 
     return res.status(200).json({
       success: true,

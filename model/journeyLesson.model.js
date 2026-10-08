@@ -5,7 +5,7 @@ const JourneyLessonSchema = new mongoose.Schema(
     journeyTopicId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "JourneyTopic",
-      default: null, // Null indicates a standalone lesson used in topics or elsewhere
+      default: null, 
     },
     title: {
       type: String,

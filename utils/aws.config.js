@@ -11,7 +11,7 @@ export const s3 = new S3Client({
 
 export const publicUrlForKey = (key) => {
     const cdn = process.env.CDN_BASE_URL?.replace(/\/$/, '');
-    if (cdn) return `${cdn}/${key}`; // CloudFront or custom domain
+    if (cdn) return `${cdn}/${key}`; 
     const bucket = process.env.S3_BUCKET_NAME;
     const region = process.env.S3_REGION || 'us-east-1';
     return `https://${bucket}.s3.${region}.amazonaws.com/${encodeURI(key)}`;

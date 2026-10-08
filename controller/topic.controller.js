@@ -1,11 +1,16 @@
 import mongoose from "mongoose";
 import TopicModel from "../model/topic.model.js";
-import JourneyLessonModel from "../model/journeyLesson.model.js";
-import JourneyQuestionModel from "../model/journeyQuestion.model.js";
 import AnalyticsModel from "../model/analytics.model.js";
 import UserModel from "../model/user.model.js";
-import { recordUserPractice } from "./user.controller.js";
+import TopicChatModel from "../model/topicChat.model.js";
+import { recordUserPractice, syncUserStreak } from "./user.controller.js";
 import { uploadFile, deleteFileFromS3 } from "../middleware/imageupload.js";
+import {
+  transcribeAudio,
+  generateTopicTutorResponse,
+  textToSpeech,
+  translateText,
+} from "../services/aiService.js";
 import {
   sendSuccessResponse,
   sendCreatedResponse,
@@ -15,15 +20,11 @@ import {
 } from "../utils/Response.utils.js";
 
 export class TopicController {
-  // =========================================================================
-  // 1. Admin CRUD Operations
-  // =========================================================================
 
-  /**
-   * Create a new Topic.
-   * Pass EITHER journeyLessonId (Mode A: reuse MCQ/speaking/response lesson flow)
-   * OR tasks (Mode B: AI task-chat flow) - never both.
-   */
+
+
+
+
   static async createTopic(req, res) {
     try {
       const {
@@ -37,26 +38,35 @@ export class TopicController {
         languageToLearn,
         whatYouWillLearn,
         tasks,
-        journeyLessonId,
       } = req.body;
 
-      if (!title || !category || !languageToLearn) {
+      if (!title || !title.trim() || !category || !languageToLearn) {
         return sendBadRequestResponse(res, "Title, category, and languageToLearn are required.");
       }
 
-      if (journeyLessonId && !mongoose.Types.ObjectId.isValid(journeyLessonId)) {
-        return sendBadRequestResponse(res, "Invalid Journey Lesson ID");
+
+      const existingTopic = await TopicModel.findOne({
+        title: { $regex: new RegExp(`^${title.trim().replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}$`, "i") },
+      });
+      if (existingTopic) {
+        return sendBadRequestResponse(res, "Topic with this title already exists.");
       }
 
-      if (journeyLessonId) {
-        const lesson = await JourneyLessonModel.findById(journeyLessonId);
-        if (!lesson) {
-          return sendNotFoundResponse(res, "Linked Journey Lesson not found");
-        }
+      const validCategories = ["Business", "Pick for You", "Travel"];
+      if (!validCategories.includes(category.trim())) {
+        return sendBadRequestResponse(
+          res,
+          `Invalid category. Must be one of: ${validCategories.join(", ")}`
+        );
       }
 
-      // Handle image upload from file or fallback to string body
-      let imageUrl = image || "";
+
+      if (!req.file && (!image || !String(image).trim())) {
+        return sendBadRequestResponse(res, "Topic image is required.");
+      }
+
+
+      let imageUrl = image ? String(image).trim() : "";
       if (req.file) {
         try {
           const uploadRes = await uploadFile(req.file);
@@ -66,37 +76,67 @@ export class TopicController {
         }
       }
 
-      // Handle tasks: parses JSON array or splits string list
+      if (!imageUrl) {
+        return sendBadRequestResponse(res, "Topic image is required.");
+      }
+
+
       let parsedTasks = [];
       if (tasks) {
-        if (Array.isArray(tasks)) {
-          parsedTasks = tasks.map((t) => ({
-            title: t.title ? t.title.trim() : "",
-            description: t.description ? t.description.trim() : "",
-          }));
-        } else {
+        let rawTasks = tasks;
+        if (typeof tasks === "string") {
           try {
-            parsedTasks = JSON.parse(tasks).map((t) => ({
-              title: t.title ? t.title.trim() : "",
-              description: t.description ? t.description.trim() : "",
-            }));
+            rawTasks = JSON.parse(tasks);
           } catch (e) {
-            parsedTasks = tasks.split(",").map((t) => ({
-              title: t.trim(),
-              description: "",
-            }));
+            rawTasks = tasks.split(",").map((t) => ({ title: t.trim(), description: "", points: [] }));
           }
+        }
+
+        if (Array.isArray(rawTasks)) {
+          parsedTasks = rawTasks.map((t) => {
+            let pointsList = [];
+            if (Array.isArray(t.points)) {
+              pointsList = t.points.map((p) => String(p).trim()).filter(Boolean);
+            } else if (typeof t.points === "string" && t.points.trim()) {
+              try {
+                const parsed = JSON.parse(t.points);
+                if (Array.isArray(parsed)) {
+                  pointsList = parsed.map((p) => String(p).trim()).filter(Boolean);
+                } else {
+                  pointsList = [t.points.trim()];
+                }
+              } catch (e) {
+                pointsList = [t.points.trim()];
+              }
+            } else if (t.point) {
+              if (Array.isArray(t.point)) {
+                pointsList = t.point.map((p) => String(p).trim()).filter(Boolean);
+              } else {
+                pointsList = [String(t.point).trim()];
+              }
+            }
+
+            let desc = "";
+            if (typeof t.description === "string") {
+              desc = t.description.trim();
+            } else if (Array.isArray(t.description)) {
+              desc = t.description.map((d) => String(d).trim()).filter(Boolean).join(". ");
+            }
+
+            return {
+              title: t.title ? t.title.trim() : "",
+              description: desc,
+              points: pointsList,
+            };
+          });
         }
       }
 
-      if (journeyLessonId && parsedTasks.length > 0) {
-        return sendBadRequestResponse(res, "Provide either journeyLessonId or tasks, not both.");
-      }
-      if (!journeyLessonId && parsedTasks.length === 0) {
-        return sendBadRequestResponse(res, "Provide journeyLessonId (lesson flow) or tasks (AI chat flow).");
+      if (parsedTasks.length === 0) {
+        return sendBadRequestResponse(res, "At least one task is required for the topic.");
       }
 
-      // Handle whatYouWillLearn
+
       let parsedLearnList = [];
       if (whatYouWillLearn) {
         if (Array.isArray(whatYouWillLearn)) {
@@ -110,11 +150,10 @@ export class TopicController {
         }
       }
 
-      const countTerms = termsCount !== undefined && termsCount !== null
-        ? Number(termsCount)
-        : parsedTasks.length > 0
-          ? parsedTasks.length
-          : 0;
+      const countTerms =
+        termsCount !== undefined && termsCount !== null
+          ? Number(termsCount)
+          : parsedTasks.length;
 
       const topic = await TopicModel.create({
         title: title.trim(),
@@ -126,7 +165,6 @@ export class TopicController {
         image: imageUrl,
         languageToLearn: languageToLearn.trim(),
         whatYouWillLearn: parsedLearnList,
-        journeyLessonId: journeyLessonId || null,
         tasks: parsedTasks,
       });
 
@@ -136,9 +174,7 @@ export class TopicController {
     }
   }
 
-  /**
-   * Update an existing Topic
-   */
+
   static async updateTopic(req, res) {
     try {
       const { id } = req.params;
@@ -153,7 +189,6 @@ export class TopicController {
         languageToLearn,
         whatYouWillLearn,
         tasks,
-        journeyLessonId,
       } = req.body;
 
       if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -166,9 +201,31 @@ export class TopicController {
       }
 
       const updateData = {};
-      if (title !== undefined) updateData.title = title.trim();
+      if (title !== undefined) {
+        const trimmedTitle = title.trim();
+        if (!trimmedTitle) {
+          return sendBadRequestResponse(res, "Topic title cannot be empty.");
+        }
+        const existingTopic = await TopicModel.findOne({
+          _id: { $ne: id },
+          title: { $regex: new RegExp(`^${trimmedTitle.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}$`, "i") },
+        });
+        if (existingTopic) {
+          return sendBadRequestResponse(res, "Another topic with this title already exists.");
+        }
+        updateData.title = trimmedTitle;
+      }
       if (description !== undefined) updateData.description = description.trim();
-      if (category !== undefined) updateData.category = category.trim();
+      if (category !== undefined) {
+        const validCategories = ["Business", "Pick for You", "Travel"];
+        if (!validCategories.includes(category.trim())) {
+          return sendBadRequestResponse(
+            res,
+            `Invalid category. Must be one of: ${validCategories.join(", ")}`
+          );
+        }
+        updateData.category = category.trim();
+      }
       if (categorySubtitle !== undefined) updateData.categorySubtitle = categorySubtitle.trim();
       if (difficulty !== undefined) updateData.difficulty = difficulty;
       if (termsCount !== undefined) updateData.termsCount = Number(termsCount);
@@ -185,7 +242,10 @@ export class TopicController {
           return sendErrorResponse(res, 500, "Failed to upload topic image", uploadErr);
         }
       } else if (image !== undefined) {
-        updateData.image = image;
+        if (!String(image).trim()) {
+          return sendBadRequestResponse(res, "Topic image cannot be empty.");
+        }
+        updateData.image = String(image).trim();
       }
 
       if (whatYouWillLearn !== undefined) {
@@ -200,46 +260,56 @@ export class TopicController {
         }
       }
 
-      if (journeyLessonId !== undefined) {
-        if (journeyLessonId) {
-          if (!mongoose.Types.ObjectId.isValid(journeyLessonId)) {
-            return sendBadRequestResponse(res, "Invalid Journey Lesson ID");
-          }
-          const lesson = await JourneyLessonModel.findById(journeyLessonId);
-          if (!lesson) {
-            return sendNotFoundResponse(res, "Linked Journey Lesson not found");
-          }
-          updateData.journeyLessonId = journeyLessonId;
-          updateData.tasks = []; // switching to lesson mode clears tasks
-        } else {
-          updateData.journeyLessonId = null;
-        }
-      }
-
       if (tasks !== undefined) {
         let parsedTasks = [];
-        if (Array.isArray(tasks)) {
-          parsedTasks = tasks.map((t) => ({
-            title: t.title ? t.title.trim() : "",
-            description: t.description ? t.description.trim() : "",
-          }));
-        } else {
+        let rawTasks = tasks;
+        if (typeof tasks === "string") {
           try {
-            parsedTasks = JSON.parse(tasks).map((t) => ({
-              title: t.title ? t.title.trim() : "",
-              description: t.description ? t.description.trim() : "",
-            }));
+            rawTasks = JSON.parse(tasks);
           } catch (e) {
-            parsedTasks = tasks.split(",").map((t) => ({
-              title: t.trim(),
-              description: "",
-            }));
+            rawTasks = tasks.split(",").map((t) => ({ title: t.trim(), description: "", points: [] }));
           }
         }
-        updateData.tasks = parsedTasks;
-        if (parsedTasks.length > 0) {
-          updateData.journeyLessonId = null; // switching to AI-chat mode clears journeyLessonId
+
+        if (Array.isArray(rawTasks)) {
+          parsedTasks = rawTasks.map((t) => {
+            let pointsList = [];
+            if (Array.isArray(t.points)) {
+              pointsList = t.points.map((p) => String(p).trim()).filter(Boolean);
+            } else if (typeof t.points === "string" && t.points.trim()) {
+              try {
+                const parsed = JSON.parse(t.points);
+                if (Array.isArray(parsed)) {
+                  pointsList = parsed.map((p) => String(p).trim()).filter(Boolean);
+                } else {
+                  pointsList = [t.points.trim()];
+                }
+              } catch (e) {
+                pointsList = [t.points.trim()];
+              }
+            } else if (t.point) {
+              if (Array.isArray(t.point)) {
+                pointsList = t.point.map((p) => String(p).trim()).filter(Boolean);
+              } else {
+                pointsList = [String(t.point).trim()];
+              }
+            }
+
+            let desc = "";
+            if (typeof t.description === "string") {
+              desc = t.description.trim();
+            } else if (Array.isArray(t.description)) {
+              desc = t.description.map((d) => String(d).trim()).filter(Boolean).join(". ");
+            }
+
+            return {
+              title: t.title ? t.title.trim() : "",
+              description: desc,
+              points: pointsList,
+            };
+          });
         }
+        updateData.tasks = parsedTasks;
       }
 
       const updatedTopic = await TopicModel.findByIdAndUpdate(id, updateData, {
@@ -252,9 +322,7 @@ export class TopicController {
     }
   }
 
-  /**
-   * Delete a Topic
-   */
+
   static async deleteTopic(req, res) {
     try {
       const { id } = req.params;
@@ -272,6 +340,7 @@ export class TopicController {
         await deleteFileFromS3(topic.image);
       }
 
+      await TopicChatModel.deleteMany({ topicId: id });
       await TopicModel.findByIdAndDelete(id);
       return sendSuccessResponse(res, "Topic deleted successfully");
     } catch (error) {
@@ -279,12 +348,10 @@ export class TopicController {
     }
   }
 
-  /**
-   * Get all Topics (Admin panel)
-   */
+
   static async getAllTopicsAdmin(req, res) {
     try {
-      const topics = await TopicModel.find().populate("journeyLessonId").sort({ createdAt: -1 });
+      const topics = await TopicModel.find().sort({ createdAt: -1 });
 
       if (topics.length === 0) {
         return sendBadRequestResponse(res, "No Topics found");
@@ -296,72 +363,76 @@ export class TopicController {
     }
   }
 
-  // =========================================================================
-  // 2. User Operations
-  // =========================================================================
 
-  /**
-   * Get all Topics for the user's selected language,
-   * grouped by category with category subtitle, and a "Continue" card for the
-   * most recently in-progress topic (Figma: Topics screen).
-   */
+
+
+
+
   static async getTopics(req, res) {
     try {
-      const languageToLearn = req.user.onboarding?.languageToLearn;
-      if (!languageToLearn) {
-        return sendBadRequestResponse(res, "Please complete onboarding to select a language.");
+      const userLanguage = req.user.onboarding?.languageToLearn || "English";
+
+      let topics = await TopicModel.find({
+        languageToLearn: { $regex: new RegExp(`^${userLanguage.trim()}$`, "i") },
+      }).sort({ createdAt: 1 });
+
+
+      if (topics.length === 0) {
+        topics = await TopicModel.find().sort({ createdAt: 1 });
       }
 
-      const topics = await TopicModel.find({ languageToLearn }).sort({ createdAt: 1 });
       const analytics = await AnalyticsModel.findOne({ userId: req.user._id });
-      const user = await UserModel.findById(req.user._id).select("streakDays");
+      const currentStreak = await syncUserStreak(req.user._id);
+
+
+      const userChats = await TopicChatModel.find({ userId: req.user._id }).sort({ updatedAt: -1 });
+      const userChatMap = {};
+      for (const chat of userChats) {
+        if (chat.topicId) {
+          userChatMap[chat.topicId.toString()] = chat.updatedAt;
+        }
+      }
+
+      const defaultCategorySubtitles = {
+        "Business": "Speak confidently in a professional setting",
+        "Pick for You": "Personalized just for your goals and interests",
+        "Travel": "Learn the essentials for trips and adventures",
+        "Everyday Conversations": "Speak naturally in daily situations",
+      };
 
       const mappedTopics = topics.map((topic) => {
-        const contentType = topic.journeyLessonId ? "lesson" : "ai_chat";
         let status = "not_started";
         let completedTasksCount = 0;
-        let totalTasksCount = topic.tasks && topic.tasks.length > 0 ? topic.tasks.length : (topic.termsCount || 1);
+        const totalTasksCount = topic.tasks && topic.tasks.length > 0 ? topic.tasks.length : (topic.termsCount || 1);
         let lastActivityAt = null;
 
-        if (contentType === "ai_chat") {
-          const record = analytics
-            ? analytics.completedTopics.find((ct) => ct.topicId === topic._id.toString())
-            : null;
-          if (record) {
-            status = record.status;
-            completedTasksCount = record.completedTasksCount;
-            lastActivityAt = record.completedAt;
-          }
-        } else {
-          // lesson mode: completion is driven by completedLessons for the linked lesson
-          const record = analytics
-            ? analytics.completedLessons
-              .filter((cl) => {
-                const targetId = cl.journeyLessonId || cl.lessonId;
-                return targetId?.toString() === topic.journeyLessonId.toString();
-              })
-              .sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt))[0]
-            : null;
-          totalTasksCount = topic.termsCount || 1;
-          if (record) {
-            status = record.status === "completed" ? "completed" : "started";
-            completedTasksCount = record.status === "completed" ? totalTasksCount : 1;
-            lastActivityAt = record.completedAt;
-          }
+        const record = analytics
+          ? analytics.completedTopics.find((ct) => ct.topicId === topic._id.toString())
+          : null;
+
+        const chatLastUpdated = userChatMap[topic._id.toString()] || null;
+
+        if (record) {
+          status = record.status;
+          completedTasksCount = record.completedTasksCount || 0;
+          lastActivityAt = record.completedAt || chatLastUpdated;
+        } else if (chatLastUpdated) {
+          status = "started";
+          lastActivityAt = chatLastUpdated;
         }
+
+        const subtitle = topic.categorySubtitle || defaultCategorySubtitles[topic.category] || "";
 
         return {
           _id: topic._id,
           title: topic.title,
           description: topic.description,
           category: topic.category,
-          categorySubtitle: topic.categorySubtitle || "",
+          categorySubtitle: subtitle,
           difficulty: topic.difficulty,
           termsCount: topic.termsCount || totalTasksCount,
           image: topic.image || "",
           languageToLearn: topic.languageToLearn,
-          contentType,
-          journeyLessonId: topic.journeyLessonId || null,
           totalTasksCount,
           completedTasksCount,
           status,
@@ -371,42 +442,63 @@ export class TopicController {
         };
       });
 
+
       const inProgressTopics = mappedTopics
-        .filter((t) => t.status === "started")
-        .sort((a, b) => new Date(b.lastActivityAt) - new Date(a.lastActivityAt));
+        .filter((t) => (t.status === "started" || (userChatMap[t._id.toString()] && !t.isCompleted)))
+        .sort((a, b) => new Date(b.lastActivityAt || 0) - new Date(a.lastActivityAt || 0));
+
       const continueTopic = inProgressTopics.length > 0 ? inProgressTopics[0] : null;
 
-      // Group into categories list with subtitle
+
+      const shuffleArray = (array) => {
+        const arr = [...array];
+        for (let i = arr.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [arr[i], arr[j]] = [arr[j], arr[i]];
+        }
+        return arr;
+      };
+
+
+      const everydayConversations = shuffleArray(mappedTopics).slice(0, 5);
+
+
       const categoriesMap = {};
+      const categoryOrder = ["Business", "Pick for You", "Travel"];
+
+      for (const catName of categoryOrder) {
+        categoriesMap[catName] = {
+          name: catName,
+          subtitle: defaultCategorySubtitles[catName] || "Speak confidently in daily situations",
+          topics: [],
+        };
+      }
+
       for (const topic of mappedTopics) {
-        if (!categoriesMap[topic.category]) {
-          categoriesMap[topic.category] = {
-            name: topic.category,
-            subtitle: topic.categorySubtitle || "",
+        const catName = topic.category || "General";
+        if (!categoriesMap[catName]) {
+          categoriesMap[catName] = {
+            name: catName,
+            subtitle: defaultCategorySubtitles[catName] || "Speak confidently in daily situations",
             topics: [],
           };
         }
-        categoriesMap[topic.category].topics.push(topic);
+        categoriesMap[catName].topics.push(topic);
       }
 
-      const categoriesList = Object.values(categoriesMap);
+      const categoriesList = Object.values(categoriesMap).filter((c) => c.topics.length > 0);
 
       return sendSuccessResponse(res, "Topics fetched successfully", {
-        streakDays: user?.streakDays || 0,
+        streakDays: currentStreak,
         continue: continueTopic,
-        categories: categoriesList,
-        categoriesMap,
+        everydayConversations,
       });
     } catch (error) {
       return sendErrorResponse(res, 500, error.message, error);
     }
   }
 
-  /**
-   * Get specific Topic details.
-   * - lesson mode: also returns the linked journey lesson + its questions (Chair/Table/Desk flow)
-   * - ai_chat mode: returns tasks with completion status (Participating in meetings flow)
-   */
+
   static async getTopicDetails(req, res) {
     try {
       const { id } = req.params;
@@ -421,49 +513,6 @@ export class TopicController {
       }
 
       const analytics = await AnalyticsModel.findOne({ userId: req.user._id });
-      const contentType = topic.journeyLessonId ? "lesson" : "ai_chat";
-
-      const base = {
-        _id: topic._id,
-        title: topic.title,
-        description: topic.description,
-        category: topic.category,
-        categorySubtitle: topic.categorySubtitle || "",
-        difficulty: topic.difficulty,
-        termsCount: topic.termsCount || (topic.tasks ? topic.tasks.length : 0),
-        image: topic.image || "",
-        languageToLearn: topic.languageToLearn,
-        whatYouWillLearn: topic.whatYouWillLearn,
-        contentType,
-      };
-
-      if (contentType === "lesson") {
-        const lesson = await JourneyLessonModel.findById(topic.journeyLessonId);
-        const questions = await JourneyQuestionModel.find({ journeyLessonId: topic.journeyLessonId, isDeleted: false });
-
-        const record = analytics
-          ? analytics.completedLessons
-            .filter((cl) => {
-              const targetId = cl.journeyLessonId || cl.lessonId;
-              return targetId?.toString() === topic.journeyLessonId.toString();
-            })
-            .sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt))[0]
-          : null;
-
-        const isCompleted = record ? record.status === "completed" : false;
-        const status = record ? record.status : "not_started";
-
-        return sendSuccessResponse(res, "Topic details fetched successfully", {
-          ...base,
-          lesson,
-          questions,
-          status,
-          isCompleted,
-          progressPercent: isCompleted ? 100 : status === "started" ? 50 : 0,
-        });
-      }
-
-      // ai_chat mode
       const completedRecord = analytics
         ? analytics.completedTopics.find((ct) => ct.topicId === topic._id.toString())
         : null;
@@ -474,7 +523,8 @@ export class TopicController {
         _id: task._id,
         order: index + 1,
         title: task.title,
-        description: task.description,
+        description: task.description || "",
+        points: Array.isArray(task.points) ? task.points : [],
         isCompleted: index < completedCount,
       }));
 
@@ -482,7 +532,16 @@ export class TopicController {
       const status = completedRecord ? completedRecord.status : "not_started";
 
       return sendSuccessResponse(res, "Topic details fetched successfully", {
-        ...base,
+        _id: topic._id,
+        title: topic.title,
+        description: topic.description,
+        category: topic.category,
+        categorySubtitle: topic.categorySubtitle || "",
+        difficulty: topic.difficulty,
+        termsCount: topic.termsCount || totalTasks,
+        image: topic.image || "",
+        languageToLearn: topic.languageToLearn,
+        whatYouWillLearn: topic.whatYouWillLearn,
         tasks: tasksWithStatus,
         totalTasksCount: totalTasks,
         completedTasksCount: completedCount,
@@ -495,12 +554,10 @@ export class TopicController {
     }
   }
 
-  /**
-   * Record a completed task under an AI-chat Topic.
-   */
+
   static async recordCompletedTask(req, res) {
     try {
-      const { topicId } = req.body;
+      const topicId = req.params.id || req.params.topicId || req.body.topicId;
       const userId = req.user._id;
 
       if (!topicId) {
@@ -516,11 +573,7 @@ export class TopicController {
         return sendNotFoundResponse(res, "Topic not found");
       }
 
-      if (topic.journeyLessonId) {
-        return sendBadRequestResponse(res, "This topic uses the lesson flow. Complete it via the lesson/question endpoints instead.");
-      }
-
-      const totalTasks = topic.tasks.length;
+      const totalTasks = topic.tasks ? topic.tasks.length : 0;
 
       let analytics = await AnalyticsModel.findOne({ userId });
       if (!analytics) {
@@ -562,9 +615,468 @@ export class TopicController {
     }
   }
 
-  /**
-   * Reset Topic progress (for "Start from the beginning" / "Start learning again")
-   */
+
+  static async startTopicLesson(req, res) {
+    try {
+      const { id } = req.params;
+      const userId = req.user._id;
+
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return sendBadRequestResponse(res, "Invalid Topic ID");
+      }
+
+      const topic = await TopicModel.findById(id);
+      if (!topic) {
+        return sendNotFoundResponse(res, "Topic not found");
+      }
+
+      const user = await UserModel.findById(userId);
+      const targetLanguage = user?.onboarding?.languageToLearn || topic.languageToLearn || "English";
+      const nativeLanguage = user?.onboarding?.nativeLanguage || "Spanish";
+
+      let analytics = await AnalyticsModel.findOne({ userId });
+      if (!analytics) {
+        analytics = new AnalyticsModel({ userId });
+      }
+
+      const totalTasks = topic.tasks ? topic.tasks.length : 0;
+      let topicRecord = analytics.completedTopics.find((ct) => ct.topicId === topic._id.toString());
+      if (!topicRecord) {
+        topicRecord = {
+          topicId: topic._id.toString(),
+          completedTasksCount: 0,
+          status: "started",
+          completedAt: new Date(),
+        };
+        analytics.completedTopics.push(topicRecord);
+        await analytics.save();
+      }
+
+      const completedCount = topicRecord.completedTasksCount || 0;
+      const activeTaskIndex = Math.min(completedCount, Math.max(0, totalTasks - 1));
+      const activeTask = topic.tasks && topic.tasks[activeTaskIndex] ? topic.tasks[activeTaskIndex] : null;
+
+      let chatSession = await TopicChatModel.findOne({ userId, topicId: topic._id });
+      if (!chatSession) {
+        chatSession = new TopicChatModel({
+          userId,
+          topicId: topic._id,
+          topicName: topic.title,
+          messages: [],
+        });
+      }
+
+
+      if (chatSession.messages.length === 0) {
+        const firstPoint = activeTask && activeTask.points && activeTask.points.length > 0
+          ? activeTask.points[0]
+          : `Let's practice: "${topic.title}"`;
+
+        const openerText = `That's a great goal! ${topic.title} is a big part of professional life. Let's start with something simple. Try saying: "${firstPoint}"`;
+        let openerTranslation = "";
+        try {
+          openerTranslation = await translateText(openerText, nativeLanguage);
+        } catch (e) {
+          openerTranslation = "";
+        }
+
+        let openerAudioUrl = null;
+        try {
+          const audioBuf = await textToSpeech(openerText);
+          const uploadRes = await uploadFile({
+            originalname: `topic_opener_${Date.now()}.mp3`,
+            buffer: audioBuf,
+            mimetype: "audio/mpeg",
+          });
+          openerAudioUrl = uploadRes.url;
+        } catch (e) {
+          console.warn("TTS failed for topic opener:", e.message);
+        }
+
+        chatSession.messages.push({
+          sender: "tutor",
+          text: openerText,
+          audioUrl: openerAudioUrl,
+          translation: openerTranslation,
+          feedbackText: "Welcome to this interactive lesson! Speak naturally to complete each task.",
+        });
+        await chatSession.save();
+      }
+
+      const tasksWithStatus = (topic.tasks || []).map((task, index) => ({
+        _id: task._id,
+        order: index + 1,
+        title: task.title,
+        description: task.description || "",
+        points: Array.isArray(task.points) ? task.points : [],
+        isCompleted: index < completedCount,
+      }));
+
+      return sendSuccessResponse(res, "Topic lesson started successfully", {
+        topic: {
+          _id: topic._id,
+          title: topic.title,
+          description: topic.description,
+          category: topic.category,
+          categorySubtitle: topic.categorySubtitle || "",
+          difficulty: topic.difficulty,
+          termsCount: topic.termsCount || totalTasks,
+          image: topic.image || "",
+          languageToLearn: targetLanguage,
+          whatYouWillLearn: topic.whatYouWillLearn,
+        },
+        activeTask: activeTask
+          ? {
+            _id: activeTask._id,
+            order: activeTaskIndex + 1,
+            title: activeTask.title,
+            description: activeTask.description || "",
+            points: activeTask.points || [],
+            isCompleted: activeTaskIndex < completedCount,
+          }
+          : null,
+        tasks: tasksWithStatus,
+        completedTasksCount: completedCount,
+        totalTasksCount: totalTasks,
+        progressPercent: totalTasks > 0 ? Math.round((completedCount / totalTasks) * 100) : 0,
+        isCompleted: topicRecord.status === "completed",
+        status: topicRecord.status,
+        messages: chatSession.messages,
+      });
+    } catch (error) {
+      return sendErrorResponse(res, 500, error.message, error);
+    }
+  }
+
+
+  static async sendTopicMessage(req, res) {
+    try {
+      const userId = req.user._id;
+      const { topicId, taskId } = req.body;
+
+      if (!topicId || !mongoose.Types.ObjectId.isValid(topicId)) {
+        return sendBadRequestResponse(res, "Valid topicId is required.");
+      }
+
+      const topic = await TopicModel.findById(topicId);
+      if (!topic) {
+        return sendNotFoundResponse(res, "Topic not found");
+      }
+
+      const user = await UserModel.findById(userId);
+      const targetLanguage = req.body.targetLanguage || user?.onboarding?.languageToLearn || topic.languageToLearn || "English";
+      const nativeLanguage = req.body.nativeLanguage || user?.onboarding?.nativeLanguage || "Spanish";
+
+      const hasAudio = !!req.file;
+      const hasText = !!(req.body.text && req.body.text.trim());
+      const hasTaskId = !!(taskId && taskId.trim());
+
+
+      const inputCount = (hasAudio ? 1 : 0) + (hasText ? 1 : 0) + (hasTaskId ? 1 : 0);
+
+      if (inputCount === 0) {
+        return sendBadRequestResponse(
+          res,
+          "Please provide either 'audio' file, 'text' message, or 'taskId' to select a task (only one at a time)."
+        );
+      }
+
+      if (inputCount > 1) {
+        return sendBadRequestResponse(
+          res,
+          "Please provide only ONE input at a time: either 'audio', 'text', or 'taskId' (do not send them together)."
+        );
+      }
+
+      let userText = "";
+      let userAudioUrl = null;
+
+      if (hasAudio) {
+        try {
+          const uploadRes = await uploadFile(req.file);
+          userAudioUrl = uploadRes.url;
+          userText = await transcribeAudio(req.file.buffer, req.file.originalname, req.file.mimetype);
+        } catch (err) {
+          return sendErrorResponse(res, 500, "Failed to process audio file", err);
+        }
+      } else if (hasText) {
+        userText = req.body.text.trim();
+      }
+
+      let userTranslation = "";
+      if (userText) {
+        try {
+          userTranslation = await translateText(userText, nativeLanguage);
+        } catch (err) {
+          console.warn("User translation failed:", err.message);
+        }
+      }
+
+
+      let chatSession = await TopicChatModel.findOne({ userId, topicId: topic._id });
+      if (!chatSession) {
+        chatSession = new TopicChatModel({
+          userId,
+          topicId: topic._id,
+          topicName: topic.title,
+          messages: [],
+        });
+      }
+
+      const conversationHistory = chatSession.messages.slice(-10).map((m) => ({
+        sender: m.sender,
+        text: m.text,
+      }));
+
+
+      let analytics = await AnalyticsModel.findOne({ userId });
+      if (!analytics) {
+        analytics = new AnalyticsModel({ userId });
+      }
+
+      let topicRecord = analytics.completedTopics.find((ct) => ct.topicId === topic._id.toString());
+      if (!topicRecord) {
+        topicRecord = {
+          topicId: topic._id.toString(),
+          completedTasksCount: 0,
+          status: "started",
+          completedAt: new Date(),
+        };
+        analytics.completedTopics.push(topicRecord);
+      }
+
+      const totalTasks = topic.tasks ? topic.tasks.length : 0;
+      let completedCount = topicRecord.completedTasksCount || 0;
+
+
+      if (hasTaskId) {
+        if (!mongoose.Types.ObjectId.isValid(taskId)) {
+          return sendBadRequestResponse(res, "Invalid taskId.");
+        }
+
+        const taskIndex = (topic.tasks || []).findIndex((t) => t._id.toString() === taskId.toString());
+        if (taskIndex === -1) {
+          return sendNotFoundResponse(res, "Task not found in this topic.");
+        }
+
+        const selectedTask = topic.tasks[taskIndex];
+        const taskPoint = selectedTask.points && selectedTask.points.length > 0
+          ? selectedTask.points[0]
+          : selectedTask.description || selectedTask.title;
+
+        const aiPrompt = `Let's work on task ${taskIndex + 1}: "${selectedTask.title}". ${taskPoint}`;
+        let promptTranslation = "";
+        try {
+          promptTranslation = await translateText(aiPrompt, nativeLanguage);
+        } catch (e) {
+          promptTranslation = "";
+        }
+
+        let promptAudioUrl = null;
+        try {
+          const ttsBuf = await textToSpeech(aiPrompt);
+          const uploadRes = await uploadFile({
+            originalname: `task_prompt_${Date.now()}.mp3`,
+            buffer: ttsBuf,
+            mimetype: "audio/mpeg",
+          });
+          promptAudioUrl = uploadRes.url;
+        } catch (e) {
+          console.warn("TTS generation failed for task selection:", e.message);
+        }
+
+        chatSession.messages.push({
+          sender: "tutor",
+          text: aiPrompt,
+          audioUrl: promptAudioUrl,
+          translation: promptTranslation,
+          feedbackText: `Switched to Task ${taskIndex + 1}: ${selectedTask.title}`,
+        });
+        await chatSession.save();
+
+        const tasksWithStatus = (topic.tasks || []).map((task, index) => ({
+          _id: task._id,
+          order: index + 1,
+          title: task.title,
+          description: task.description || "",
+          points: Array.isArray(task.points) ? task.points : [],
+          isCompleted: index < completedCount,
+        }));
+
+        return sendSuccessResponse(res, "Task selected successfully", {
+          aiReply: aiPrompt,
+          tutorAudioUrl: promptAudioUrl,
+          translation: promptTranslation,
+          activeTask: {
+            _id: selectedTask._id,
+            order: taskIndex + 1,
+            title: selectedTask.title,
+            description: selectedTask.description || "",
+            points: selectedTask.points || [],
+            isCompleted: taskIndex < completedCount,
+          },
+          tasks: tasksWithStatus,
+          completedTasksCount: completedCount,
+          totalTasksCount: totalTasks,
+          progressPercent: totalTasks > 0 ? Math.round((completedCount / totalTasks) * 100) : 0,
+          isTopicCompleted: topicRecord.status === "completed",
+        });
+      }
+
+
+      let activeTaskIndex = completedCount < totalTasks ? completedCount : totalTasks - 1;
+      const activeTask = topic.tasks && topic.tasks[activeTaskIndex] ? topic.tasks[activeTaskIndex] : null;
+      const nextTask = topic.tasks && topic.tasks[activeTaskIndex + 1] ? topic.tasks[activeTaskIndex + 1] : null;
+
+
+      const tutorResponse = await generateTopicTutorResponse({
+        userText,
+        topicTitle: topic.title,
+        topicDescription: topic.description,
+        activeTask,
+        nextTask,
+        targetLanguage,
+        nativeLanguage,
+        conversationHistory,
+        audioBuffer: req.file ? req.file.buffer : null,
+        audioMimeType: req.file ? req.file.mimetype : null,
+      });
+
+      const {
+        aiReply,
+        translation,
+        grammarScore,
+        feedbackText,
+        pronunciationScore,
+        pronunciationFeedback,
+        isTaskCompleted,
+      } = tutorResponse;
+
+
+      let tutorAudioUrl = null;
+      try {
+        const tutorAudioBuf = await textToSpeech(aiReply);
+        const uploadRes = await uploadFile({
+          originalname: `tutor_reply_${Date.now()}.mp3`,
+          buffer: tutorAudioBuf,
+          mimetype: "audio/mpeg",
+        });
+        tutorAudioUrl = uploadRes.url;
+      } catch (err) {
+        console.warn("TTS generation failed:", err.message);
+      }
+
+
+      let justCompletedTask = null;
+      if (isTaskCompleted && activeTask) {
+        if (activeTaskIndex === completedCount && completedCount < totalTasks) {
+          topicRecord.completedTasksCount += 1;
+          completedCount = topicRecord.completedTasksCount;
+          justCompletedTask = {
+            _id: activeTask._id,
+            title: activeTask.title,
+            isCompleted: true,
+          };
+        }
+        if (completedCount >= totalTasks) {
+          topicRecord.status = "completed";
+        }
+        topicRecord.completedAt = new Date();
+      }
+
+      await analytics.save();
+      const updatedStreak = await recordUserPractice(userId);
+
+
+      chatSession.messages.push({
+        sender: "user",
+        text: userText,
+        audioUrl: userAudioUrl,
+        translation: userTranslation,
+      });
+
+      chatSession.messages.push({
+        sender: "tutor",
+        text: aiReply,
+        audioUrl: tutorAudioUrl,
+        translation,
+        grammarScore,
+        feedbackText,
+        pronunciationScore: req.file ? (pronunciationScore || 85) : null,
+        pronunciationFeedback: req.file ? (pronunciationFeedback || "Good pronunciation!") : null,
+      });
+
+      await chatSession.save();
+
+      const newActiveIndex = Math.min(completedCount, Math.max(0, totalTasks - 1));
+      const currentActiveTask = topic.tasks && topic.tasks[newActiveIndex] ? topic.tasks[newActiveIndex] : null;
+
+      const tasksWithStatus = (topic.tasks || []).map((task, index) => ({
+        _id: task._id,
+        order: index + 1,
+        title: task.title,
+        description: task.description || "",
+        points: Array.isArray(task.points) ? task.points : [],
+        isCompleted: index < completedCount,
+      }));
+
+      return sendSuccessResponse(res, "Topic message processed successfully", {
+        userText,
+        userAudioUrl,
+        userTranslation,
+        aiReply,
+        tutorAudioUrl,
+        translation,
+        grammarScore,
+        feedbackText,
+        pronunciationScore: req.file ? (pronunciationScore || 85) : null,
+        pronunciationFeedback: req.file ? (pronunciationFeedback || "Good pronunciation!") : null,
+        isTaskCompleted: !!isTaskCompleted,
+        justCompletedTask,
+        activeTask: currentActiveTask
+          ? {
+            _id: currentActiveTask._id,
+            order: newActiveIndex + 1,
+            title: currentActiveTask.title,
+            description: currentActiveTask.description || "",
+            points: currentActiveTask.points || [],
+            isCompleted: newActiveIndex < completedCount,
+          }
+          : null,
+        tasks: tasksWithStatus,
+        completedTasksCount: completedCount,
+        totalTasksCount: totalTasks,
+        progressPercent: totalTasks > 0 ? Math.round((completedCount / totalTasks) * 100) : 0,
+        isTopicCompleted: topicRecord.status === "completed",
+        streakDays: updatedStreak || 0,
+      });
+    } catch (error) {
+      return sendErrorResponse(res, 500, error.message, error);
+    }
+  }
+
+
+  static async getTopicChatHistory(req, res) {
+    try {
+      const { id } = req.params;
+      const userId = req.user._id;
+
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return sendBadRequestResponse(res, "Invalid Topic ID");
+      }
+
+      const history = await TopicChatModel.find({ userId, topicId: id }).sort({ updatedAt: -1 });
+      if (!history || history.length === 0) {
+        return sendNotFoundResponse(res, "No any history found...");
+      }
+
+      return sendSuccessResponse(res, "Chat history retrieved successfully", history);
+    } catch (error) {
+      return sendErrorResponse(res, 500, error.message, error);
+    }
+  }
+
+
   static async resetTopicProgress(req, res) {
     try {
       const { id } = req.params;
@@ -579,26 +1091,18 @@ export class TopicController {
         return sendNotFoundResponse(res, "Topic not found");
       }
 
-      const analytics = await AnalyticsModel.findOne({ userId });
-      if (!analytics) {
-        return sendSuccessResponse(res, "Topic progress reset successfully");
-      }
-
-      if (topic.journeyLessonId) {
-        // Reset lesson progress
-        analytics.completedLessons = analytics.completedLessons.filter((cl) => {
-          const targetId = cl.journeyLessonId || cl.lessonId;
-          return targetId?.toString() !== topic.journeyLessonId.toString();
-        });
-      } else {
-        // Reset AI chat topic progress
+      let analytics = await AnalyticsModel.findOne({ userId });
+      if (analytics) {
         analytics.completedTopics = analytics.completedTopics.filter(
           (ct) => ct.topicId !== topic._id.toString()
         );
+        await analytics.save();
       }
 
-      await analytics.save();
-      return sendSuccessResponse(res, "Topic progress reset successfully");
+
+      await TopicChatModel.deleteMany({ userId, topicId: id });
+
+      return sendSuccessResponse(res, "Topic progress and chat history reset successfully");
     } catch (error) {
       return sendErrorResponse(res, 500, error.message, error);
     }

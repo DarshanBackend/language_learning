@@ -16,7 +16,19 @@ const UserSettingsSchema = new mongoose.Schema({
       type: Boolean,
       default: true,
     },
+    dailyPracticeReminder: {
+      type: Boolean,
+      default: true,
+    },
     streakReminder: {
+      type: Boolean,
+      default: true,
+    },
+    streakFreezeAlert: {
+      type: Boolean,
+      default: true,
+    },
+    weeklyProgressSummary: {
       type: Boolean,
       default: true,
     },

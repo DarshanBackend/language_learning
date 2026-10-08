@@ -15,9 +15,9 @@ import {
 import mongoose from "mongoose";
 
 export class OnboardingOptionController {
-  // ==========================================
-  // Aggregate Endpoint: Retrieves everything in one payload
-  // ==========================================
+
+
+
   static async getAllOptions(req, res) {
     try {
       const [
@@ -65,9 +65,9 @@ export class OnboardingOptionController {
     }
   }
 
-  // ==========================================
-  // 1. Languages to Learn CRUD
-  // ==========================================
+
+
+
   static async createLanguage(req, res) {
     let imageUrl = null;
     try {
@@ -174,9 +174,9 @@ export class OnboardingOptionController {
     }
   }
 
-  // ==========================================
-  // 2. Native Languages CRUD
-  // ==========================================
+
+
+
   static async createNativeLanguage(req, res) {
     let imageUrl = null;
     try {
@@ -283,9 +283,9 @@ export class OnboardingOptionController {
     }
   }
 
-  // ==========================================
-  // 3. Learning Levels CRUD
-  // ==========================================
+
+
+
   static async createLevel(req, res) {
     let imageUrl = null;
     try {
@@ -397,9 +397,9 @@ export class OnboardingOptionController {
     }
   }
 
-  // ==========================================
-  // 4. Learning Goals CRUD
-  // ==========================================
+
+
+
   static async createGoal(req, res) {
     try {
       const { title } = req.body;
@@ -468,9 +468,9 @@ export class OnboardingOptionController {
     }
   }
 
-  // ==========================================
-  // 5. Time Commitments CRUD
-  // ==========================================
+
+
+
   static async createCommitment(req, res) {
     try {
       const { title } = req.body;
@@ -539,9 +539,9 @@ export class OnboardingOptionController {
     }
   }
 
-  // ==========================================
-  // 6. Interests CRUD
-  // ==========================================
+
+
+
   static async createInterest(req, res) {
     try {
       const { title } = req.body;

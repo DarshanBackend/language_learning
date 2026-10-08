@@ -209,17 +209,17 @@ Do not include any markup, markdown tags, or explanatory text outside the JSON o
   }
 
   let fallbackReply = `Great job! Keep practicing in ${targetLanguage}.`;
-  let fallbackTrans = `સારી કામગીરી! ${targetLanguage} માં બોલવાની પ્રેક્ટિસ ચાલુ રાખો.`;
+  let fallbackTrans = `Great job! Keep practicing in ${targetLanguage}.`;
 
   if (targetLanguage.toLowerCase() === "spanish") {
     fallbackReply = `¡Muy bien! Sigamos practicando. ¿Cómo te encuentras hoy?`;
-    fallbackTrans = `ખૂબ સરસ! ચાલો આગળ પ્રેક્ટિસ કરીએ. તમે આજે કેમ છો?`;
+    fallbackTrans = `Very good! Let's keep practicing. How are you today?`;
   } else if (targetLanguage.toLowerCase() === "french") {
     fallbackReply = `Très bien! Continuons à pratiquer. Comment allez-vous aujourd'hui?`;
-    fallbackTrans = `ખૂબ સરસ! પ્રેક્ટિસ ચાલુ રાખીએ. આજે તમે કેમ છો?`;
+    fallbackTrans = `Very good! Let's keep practicing. How are you today?`;
   } else if (targetLanguage.toLowerCase() === "english") {
     fallbackReply = `Awesome! You are making great progress. What would you like to talk about next?`;
-    fallbackTrans = `ખૂબ સરસ! તમે સારો વિકાસ કરી રહ્યા છો. આગળ તમે શેના વિશે વાત કરવા માંગો છો?`;
+    fallbackTrans = `Awesome! You are making great progress. What would you like to talk about next?`;
   }
 
   return {
@@ -232,44 +232,190 @@ Do not include any markup, markdown tags, or explanatory text outside the JSON o
   };
 };
 
-export const textToSpeech = async (text) => {
-  if (!openaiApiKey || openaiApiKey === "dummy-key-for-now") {
-    try {
-      const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q=${encodeURIComponent(text)}`;
-      const response = await axios.get(url, { responseType: "arraybuffer", timeout: 8000 });
-      return Buffer.from(response.data);
-    } catch (error) {
-      console.error("Google Translate TTS Error:", error.message);
-    }
-  }
+export const generateTopicTutorResponse = async ({
+      userText,
+      topicTitle = "",
+      topicDescription = "",
+      activeTask = null,
+      nextTask = null,
+      targetLanguage = "English",
+      nativeLanguage = "Spanish",
+      conversationHistory = [],
+      audioBuffer = null,
+      audioMimeType = null,
+    }) => {
+      const activeTaskTitle = activeTask ? activeTask.title : "General Practice";
+      const activeTaskDesc = activeTask ? activeTask.description : "";
+      const activeTaskPoints = activeTask && activeTask.points && activeTask.points.length > 0
+        ? activeTask.points.join("\n- ")
+        : "";
 
-  try {
-    const mp3Response = await openai.audio.speech.create({
-      model: "tts-1",
-      voice: "alloy",
-      input: text,
-    });
-    const buffer = Buffer.from(await mp3Response.arrayBuffer());
-    return buffer;
-  } catch (error) {
-    console.error("Text-to-Speech Error:", error.message);
-    throw new Error(`Speech synthesis failed: ${error.message}`);
-  }
-};
+      const nextTaskTitle = nextTask ? nextTask.title : "";
+      const nextTaskPoints = nextTask && nextTask.points && nextTask.points.length > 0
+        ? nextTask.points.join("\n- ")
+        : "";
 
-export const generateTaskChatResponse = async ({
-  topicTitle,
-  topicDescription,
-  currentTask,
-  conversationHistory,
-  userText,
-  targetLanguage = "English",
-}) => {
-  const historyText = conversationHistory
-    .map((m) => `${m.role === "ai" ? "Tutor" : "Student"}: ${m.text}`)
-    .join("\n");
+      let schemaPrompt = `{
+  "isTaskCompleted": true,
+  "aiReply": "A warm, natural tutor response in ${targetLanguage}. If the user responded well to the current task '${activeTaskTitle}', congratulate them in 1 sentence, and then seamlessly introduce the next task prompt or the guiding question (referencing the guidance points). Keep it under 3-4 sentences.",
+  "translation": "The direct translation of aiReply in ${nativeLanguage}.",
+  "grammarScore": 88,
+  "feedbackText": "Constructive feedback or vocabulary suggestion in ${nativeLanguage}."`;
 
-  const systemPrompt = `You are Language_Learning, a friendly, encouraging language tutor running a topic-based practice session.
+      if (audioBuffer) {
+        schemaPrompt += `,
+  "pronunciationScore": 85,
+  "pronunciationFeedback": "Specific feedback in ${nativeLanguage} about their pronunciation."`;
+      }
+
+      schemaPrompt += `\n}`;
+
+      const historyText = conversationHistory
+        .map((m) => `${m.sender === "tutor" || m.role === "ai" ? "Tutor" : "Student"}: ${m.text}`)
+        .join("\n");
+
+      const systemPrompt = `You are a supportive, real-time AI language tutor conducting an interactive lesson on the Topic: "${topicTitle}".
+Topic Context: "${topicDescription}"
+Current Target Language: ${targetLanguage}
+User's Native Language: ${nativeLanguage}
+
+Current Active Task to complete: "${activeTaskTitle}"
+Task Description: "${activeTaskDesc}"
+Active Task Guidance Points:
+- ${activeTaskPoints || "Answer the practice prompt naturally."}
+
+Next Task (if active task is completed): "${nextTaskTitle}"
+Next Task Guidance Points:
+- ${nextTaskPoints || "Continue to next practice point."}
+
+Conversation History so far:
+${historyText || "(This is the beginning of the lesson session.)"}
+
+The student just said: "${userText}".
+
+Your Instructions:
+1. Evaluate if the student made a reasonable, good effort to respond to the current task: "${activeTaskTitle}". If yes, set "isTaskCompleted": true.
+2. If completed, give brief positive feedback, mark the achievement, and immediately ask the next practice question (using the next task points or follow-up prompt).
+3. If they need to retry or didn't understand, set "isTaskCompleted": false and politely guide them.
+4. Always respond with the strict JSON structure specified below.
+
+JSON Schema:
+${schemaPrompt}
+
+Output ONLY valid JSON.`;
+
+      if (googleApiKey && googleApiKey !== "dummy-key-for-now") {
+        try {
+          const parts = [];
+          if (audioBuffer && audioMimeType) {
+            parts.push({
+              inlineData: {
+                mimeType: audioMimeType,
+                data: audioBuffer.toString("base64"),
+              },
+            });
+          }
+          parts.push({ text: systemPrompt });
+
+          const text = await callGeminiWithRetry(
+            [{ parts }],
+            { responseMimeType: "application/json" }
+          );
+
+          const parsed = JSON.parse(text);
+          if (audioBuffer && parsed.pronunciationScore === undefined) {
+            parsed.pronunciationScore = 85;
+            parsed.pronunciationFeedback = "Good pronunciation!";
+          }
+          if (parsed.isTaskCompleted === undefined) {
+            parsed.isTaskCompleted = true;
+          }
+          return parsed;
+        } catch (error) {
+          console.warn("Gemini Topic Tutor failed, trying secondary fallback:", error.message);
+        }
+      }
+
+      if (openaiApiKey && openaiApiKey !== "dummy-key-for-now") {
+        try {
+          const response = await openai.chat.completions.create({
+            model: "gpt-4o",
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: userText },
+            ],
+            response_format: { type: "json_object" },
+            temperature: 0.7,
+          });
+
+          const content = response.choices[0].message.content;
+          const parsed = JSON.parse(content);
+          if (audioBuffer && parsed.pronunciationScore === undefined) {
+            parsed.pronunciationScore = 90;
+            parsed.pronunciationFeedback = "Good pronunciation!";
+          }
+          if (parsed.isTaskCompleted === undefined) {
+            parsed.isTaskCompleted = true;
+          }
+          return parsed;
+        } catch (error) {
+          console.error("GPT Topic Tutor Response Error:", error.message);
+        }
+      }
+
+      const defaultPrompt = nextTask && nextTask.points && nextTask.points.length > 0
+        ? nextTask.points[0]
+        : "Let's keep practicing!";
+
+      return {
+        isTaskCompleted: true,
+        aiReply: `Well done! That's a great way to express it. ${defaultPrompt}`,
+        translation: `Well done! That's a great way to express it. ${defaultPrompt}`,
+        grammarScore: 88,
+        feedbackText: `Well done! You expressed your thoughts clearly.`,
+        pronunciationScore: audioBuffer ? 88 : null,
+        pronunciationFeedback: audioBuffer ? "Clear and understandable pronunciation." : null,
+      };
+    };
+
+    export const textToSpeech = async (text) => {
+      if (!openaiApiKey || openaiApiKey === "dummy-key-for-now") {
+        try {
+          const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q=${encodeURIComponent(text)}`;
+          const response = await axios.get(url, { responseType: "arraybuffer", timeout: 8000 });
+          return Buffer.from(response.data);
+        } catch (error) {
+          console.error("Google Translate TTS Error:", error.message);
+        }
+      }
+
+      try {
+        const mp3Response = await openai.audio.speech.create({
+          model: "tts-1",
+          voice: "alloy",
+          input: text,
+        });
+        const buffer = Buffer.from(await mp3Response.arrayBuffer());
+        return buffer;
+      } catch (error) {
+        console.error("Text-to-Speech Error:", error.message);
+        throw new Error(`Speech synthesis failed: ${error.message}`);
+      }
+    };
+
+    export const generateTaskChatResponse = async ({
+      topicTitle,
+      topicDescription,
+      currentTask,
+      conversationHistory,
+      userText,
+      targetLanguage = "English",
+    }) => {
+      const historyText = conversationHistory
+        .map((m) => `${m.role === "ai" ? "Tutor" : "Student"}: ${m.text}`)
+        .join("\n");
+
+      const systemPrompt = `You are Language_Learning, a friendly, encouraging language tutor running a topic-based practice session.
 
 Topic: "${topicTitle}" - ${topicDescription}
 Current task the student is practicing: "${currentTask.title}" - ${currentTask.description}
@@ -292,134 +438,134 @@ You must respond with a JSON object strictly matching this schema:
 
 Do not include markdown or any text outside the JSON object. Output ONLY the JSON block.`;
 
-  if (googleApiKey && googleApiKey !== "dummy-key-for-now") {
-    try {
-      const text = await callGeminiWithRetry(
-        [{ parts: [{ text: systemPrompt }] }],
-        { responseMimeType: "application/json" }
-      );
-      return JSON.parse(text);
-    } catch (error) {
-      console.warn("Gemini Task Chat failed, trying fallback:", error.message);
-    }
-  }
+      if (googleApiKey && googleApiKey !== "dummy-key-for-now") {
+        try {
+          const text = await callGeminiWithRetry(
+            [{ parts: [{ text: systemPrompt }] }],
+            { responseMimeType: "application/json" }
+          );
+          return JSON.parse(text);
+        } catch (error) {
+          console.warn("Gemini Task Chat failed, trying fallback:", error.message);
+        }
+      }
 
-  if (openaiApiKey && openaiApiKey !== "dummy-key-for-now") {
-    try {
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userText },
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0.7,
-      });
+      if (openaiApiKey && openaiApiKey !== "dummy-key-for-now") {
+        try {
+          const response = await openai.chat.completions.create({
+            model: "gpt-4o",
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: userText },
+            ],
+            response_format: { type: "json_object" },
+            temperature: 0.7,
+          });
 
-      const content = response.choices[0].message.content;
-      return JSON.parse(content);
-    } catch (error) {
-      console.error("GPT Task Chat Error:", error.message);
-    }
-  }
+          const content = response.choices[0].message.content;
+          return JSON.parse(content);
+        } catch (error) {
+          console.error("GPT Task Chat Error:", error.message);
+        }
+      }
 
-  return {
-    aiReply: `Great job practicing "${currentTask.title}"! Let's continue.`,
-    translation: `સારી પ્રેક્ટિસ! ચાલો આગળ વધીએ.`,
-    taskCompleted: true,
-    feedbackText: "Well done on completing this exercise.",
-  };
-};
-
-export const translateText = async (text, targetLanguage) => {
-  if (!text || !text.trim()) return "";
-
-  try {
-    const langMap = {
-      "english": "en",
-      "american english": "en",
-      "british english": "en",
-      "spanish": "es",
-      "french": "fr",
-      "german": "de",
-      "italian": "it",
-      "gujarati": "gu",
-      "hindi": "hi",
-      "japanese": "ja",
-      "portuguese": "pt",
-      "vietnamese": "vi",
-      "chinese": "zh",
-      "korean": "ko",
-      "russian": "ru"
+      return {
+        aiReply: `Great job practicing "${currentTask.title}"! Let's continue.`,
+        translation: `Great job practicing "${currentTask.title}"! Let's continue.`,
+        taskCompleted: true,
+        feedbackText: "Well done on completing this exercise.",
+      };
     };
-    const lowerLang = targetLanguage.toLowerCase().trim();
-    const langCode = langMap[lowerLang] || (lowerLang.length >= 2 ? lowerLang.substring(0, 2) : "en");
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=${langCode}&dt=t&q=${encodeURIComponent(text.trim())}`;
-    const res = await axios.get(url, { timeout: 8000 });
-    const translatedText = res.data?.[0]?.[0]?.[0];
-    if (translatedText) return translatedText.trim();
-  } catch (err) {
-  }
 
-  const systemPrompt = `You are an expert translator. Translate the English text into standard, natural ${targetLanguage}. 
+    export const translateText = async (text, targetLanguage) => {
+      if (!text || !text.trim()) return "";
+
+      try {
+        const langMap = {
+          "english": "en",
+          "american english": "en",
+          "british english": "en",
+          "spanish": "es",
+          "french": "fr",
+          "german": "de",
+          "italian": "it",
+          "gujarati": "gu",
+          "hindi": "hi",
+          "japanese": "ja",
+          "portuguese": "pt",
+          "vietnamese": "vi",
+          "chinese": "zh",
+          "korean": "ko",
+          "russian": "ru"
+        };
+        const lowerLang = targetLanguage.toLowerCase().trim();
+        const langCode = langMap[lowerLang] || (lowerLang.length >= 2 ? lowerLang.substring(0, 2) : "en");
+        const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=${langCode}&dt=t&q=${encodeURIComponent(text.trim())}`;
+        const res = await axios.get(url, { timeout: 8000 });
+        const translatedText = res.data?.[0]?.[0]?.[0];
+        if (translatedText) return translatedText.trim();
+      } catch (err) {
+      }
+
+      const systemPrompt = `You are an expert translator. Translate the English text into standard, natural ${targetLanguage}. 
 For technical terms, everyday objects, or loanwords (like "laptop", "mouse", "keyboard", "hello", etc.), please provide the standard, native word/phrase used in ${targetLanguage} (e.g. translate "laptop" to "computadora portátil" or "ordenador portátil" in Spanish, "ordinateur portable" in French, "ノートパソコン" in Japanese).
 Do NOT return the original English word if a standard native equivalent exists in ${targetLanguage}.
 Return ONLY the direct translation. Do not include explanation, markdown, quotes, or notes.
 
 Text to translate: "${text}"`;
 
-  if (googleApiKey && googleApiKey !== "dummy-key-for-now") {
-    try {
-      const content = await callGeminiWithRetry([{ parts: [{ text: systemPrompt }] }]);
-      if (content) return content.trim();
-    } catch (error) {
-      console.error("Gemini Translation Error:", error.message);
-    }
-  }
+      if (googleApiKey && googleApiKey !== "dummy-key-for-now") {
+        try {
+          const content = await callGeminiWithRetry([{ parts: [{ text: systemPrompt }] }]);
+          if (content) return content.trim();
+        } catch (error) {
+          console.error("Gemini Translation Error:", error.message);
+        }
+      }
 
-  if (openaiApiKey && openaiApiKey !== "dummy-key-for-now") {
-    try {
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: systemPrompt }],
-        temperature: 0.3,
-      });
-      const content = response.choices[0].message.content;
-      if (content) return content.trim();
-    } catch (error) {
-      console.error("OpenAI Translation Error:", error.message);
-    }
-  }
+      if (openaiApiKey && openaiApiKey !== "dummy-key-for-now") {
+        try {
+          const response = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [{ role: "user", content: systemPrompt }],
+            temperature: 0.3,
+          });
+          const content = response.choices[0].message.content;
+          if (content) return content.trim();
+        } catch (error) {
+          console.error("OpenAI Translation Error:", error.message);
+        }
+      }
 
-  return text;
-};
+      return text;
+    };
 
-export const translateArray = async (arr, targetLanguage) => {
-  if (!arr || !arr.length) return [];
-  try {
-    const translated = [];
-    for (const item of arr) {
-      const trans = await translateText(item, targetLanguage);
-      translated.push(trans);
-    }
-    return translated;
-  } catch (err) {
-    console.warn("Array translation failed:", err.message);
-    return arr;
-  }
-};
+    export const translateArray = async (arr, targetLanguage) => {
+      if (!arr || !arr.length) return [];
+      try {
+        const translated = [];
+        for (const item of arr) {
+          const trans = await translateText(item, targetLanguage);
+          translated.push(trans);
+        }
+        return translated;
+      } catch (err) {
+        console.warn("Array translation failed:", err.message);
+        return arr;
+      }
+    };
 
-export const generateConversationHint = async ({
-  conversationHistory,
-  targetLanguage = "English",
-  nativeLanguage = "Spanish",
-  learningLevel = "Beginner",
-}) => {
-  const historyText = conversationHistory
-    .map((m) => `${m.sender === "tutor" || m.role === "ai" ? "Tutor" : "Student"}: ${m.text}`)
-    .join("\n");
+    export const generateConversationHint = async ({
+      conversationHistory,
+      targetLanguage = "English",
+      nativeLanguage = "Spanish",
+      learningLevel = "Beginner",
+    }) => {
+      const historyText = conversationHistory
+        .map((m) => `${m.sender === "tutor" || m.role === "ai" ? "Tutor" : "Student"}: ${m.text}`)
+        .join("\n");
 
-  const systemPrompt = `You are a helpful language tutoring assistant. 
+      const systemPrompt = `You are a helpful language tutoring assistant. 
 The student is practicing conversation in ${targetLanguage}.
 Their native language is ${nativeLanguage}.
 Their current proficiency level is ${learningLevel}.
@@ -438,36 +584,36 @@ You must respond with a JSON object strictly matching this schema:
 
 Do not include markdown or any text outside the JSON object. Output ONLY the JSON block.`;
 
-  if (googleApiKey && googleApiKey !== "dummy-key-for-now") {
-    try {
-      const text = await callGeminiWithRetry(
-        [{ parts: [{ text: systemPrompt }] }],
-        { responseMimeType: "application/json" }
-      );
-      return JSON.parse(text);
-    } catch (error) {
-      console.warn("Gemini Hint generation failed, trying fallback:", error.message);
-    }
-  }
+      if (googleApiKey && googleApiKey !== "dummy-key-for-now") {
+        try {
+          const text = await callGeminiWithRetry(
+            [{ parts: [{ text: systemPrompt }] }],
+            { responseMimeType: "application/json" }
+          );
+          return JSON.parse(text);
+        } catch (error) {
+          console.warn("Gemini Hint generation failed, trying fallback:", error.message);
+        }
+      }
 
-  if (openaiApiKey && openaiApiKey !== "dummy-key-for-now") {
-    try {
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [{ role: "system", content: systemPrompt }],
-        response_format: { type: "json_object" },
-        temperature: 0.7,
-      });
+      if (openaiApiKey && openaiApiKey !== "dummy-key-for-now") {
+        try {
+          const response = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [{ role: "system", content: systemPrompt }],
+            response_format: { type: "json_object" },
+            temperature: 0.7,
+          });
 
-      const content = response.choices[0].message.content;
-      return JSON.parse(content);
-    } catch (error) {
-      console.error("GPT Hint generation failed:", error.message);
-    }
-  }
+          const content = response.choices[0].message.content;
+          return JSON.parse(content);
+        } catch (error) {
+          console.error("GPT Hint generation failed:", error.message);
+        }
+      }
 
-  return {
-    hintText: `I would like to learn more about this.`,
-    hintTranslation: `હું આ વિશે વધુ શીખવા માંગુ છું.`,
-  };
-};
+      return {
+        hintText: `I would like to learn more about this.`,
+        hintTranslation: `I would like to learn more about this.`,
+      };
+    };

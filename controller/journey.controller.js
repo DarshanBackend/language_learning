@@ -19,9 +19,9 @@ import {
 import mongoose from "mongoose";
 
 export class JourneyController {
-  // =========================================================================
-  // 1. Admin JourneyTopic CRUD
-  // =========================================================================
+
+
+
 
   static async createJourneyTopic(req, res) {
     try {
@@ -31,7 +31,7 @@ export class JourneyController {
         return sendBadRequestResponse(res, "Title and category are required.");
       }
 
-      // Check case-insensitive duplicate for the base English topic
+
       const existing = await JourneyTopicModel.findOne({
         title: { $regex: new RegExp(`^${title.trim()}$`, "i") },
         languageToLearn: { $regex: new RegExp(`^english$`, "i") },
@@ -42,15 +42,15 @@ export class JourneyController {
 
       const translations = {};
 
-      // Fetch all target onboarding languages
+
       const languages = await LanguageToLearnModel.find();
       for (const lang of languages) {
         const langName = lang.title.trim();
         if (langName.toLowerCase() === "english") {
-          continue; // Base topic is already English
+          continue; 
         }
 
-        // Translate fields to the target language
+
         const transTitle = await translateText(title, langName);
         const transDesc = description ? await translateText(description, langName) : "";
         const transCategory = await translateText(category, langName);
@@ -152,7 +152,7 @@ export class JourneyController {
         return sendNotFoundResponse(res, "Journey topic not found");
       }
 
-      // Find all lessons linked to this topic, delete them and their questions
+
       const lessons = await JourneyLessonModel.find({ journeyTopicId: id });
       for (const lesson of lessons) {
         const questions = await JourneyQuestionModel.find({ journeyLessonId: lesson._id });
@@ -172,9 +172,9 @@ export class JourneyController {
     }
   }
 
-  // =========================================================================
-  // 2. Admin JourneyLesson CRUD
-  // =========================================================================
+
+
+
 
   static async createJourneyLesson(req, res) {
     try {
@@ -195,7 +195,7 @@ export class JourneyController {
         }
       }
 
-      // Check duplicate title under English language
+
       const existing = await JourneyLessonModel.findOne({
         title: { $regex: new RegExp(`^${title.trim()}$`, "i") },
         languageToLearn: { $regex: new RegExp(`^english$`, "i") },
@@ -212,15 +212,15 @@ export class JourneyController {
 
       const translations = {};
 
-      // Fetch all target languages
+
       const languages = await LanguageToLearnModel.find();
       for (const lang of languages) {
         const langName = lang.title.trim();
         if (langName.toLowerCase() === "english") {
-          continue; // Base lesson is already English
+          continue; 
         }
 
-        // Translate fields
+
         const transTitle = await translateText(title, langName);
         const transDesc = description ? await translateText(description, langName) : "";
         const transCategory = await translateText(category, langName);
@@ -327,7 +327,7 @@ export class JourneyController {
         const uploadResult = await uploadFile(req.file);
         imageUrl = uploadResult.url;
 
-        // delete old image if it exists
+
         if (lesson.image) {
           try {
             await deleteFileFromS3(lesson.image);
@@ -375,7 +375,7 @@ export class JourneyController {
         return sendNotFoundResponse(res, "Journey lesson not found");
       }
 
-      // Delete questions
+
       const questions = await JourneyQuestionModel.find({ journeyLessonId: id });
       for (const question of questions) {
         if (question.image) await deleteFileFromS3(question.image);
@@ -384,7 +384,7 @@ export class JourneyController {
 
       await JourneyQuestionModel.deleteMany({ journeyLessonId: id });
 
-      // Delete lesson image if exists
+
       if (lesson.image) {
         try {
           await deleteFileFromS3(lesson.image);
@@ -401,9 +401,9 @@ export class JourneyController {
     }
   }
 
-  // =========================================================================
-  // 3. Admin JourneyQuestion CRUD
-  // =========================================================================
+
+
+
 
   static async createJourneyQuestion(req, res) {
     let newImageUrl = null;
@@ -456,7 +456,7 @@ export class JourneyController {
         }
       }
 
-      // Auto-generate pronunciation audio via Google Translate TTS if not provided & speaking type (for base English)
+
       if (type === "speaking" && !newAudioUrl && text) {
         try {
           const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q=${encodeURIComponent(text.trim())}`;
@@ -479,12 +479,12 @@ export class JourneyController {
 
       const translations = {};
 
-      // Fetch target languages to translate
+
       const languages = await LanguageToLearnModel.find();
       for (const lang of languages) {
         const langName = lang.title.trim();
         if (langName.toLowerCase() === "english") {
-          continue; // Base question is already English
+          continue; 
         }
 
         let transText = "";
@@ -496,7 +496,7 @@ export class JourneyController {
           transText = await translateText(text, langName);
           transRightAnswer = "";
 
-          // Generate TTS for the translated target word (e.g. "portátil")
+
           try {
             const langMap = {
               "english": "en",
@@ -535,7 +535,7 @@ export class JourneyController {
             console.warn(`Google Translate S3 Upload failed on target create for ${langName}:`, ttsErr.message);
           }
         } else {
-          // MCQ or Response
+
           transText = await translateText(text, langName);
           transRightAnswer = await translateText(rightAnswer, langName);
           if (parsedOptions.length > 0) {
@@ -685,7 +685,7 @@ export class JourneyController {
         }
       }
 
-      // Check if we need to update translations map due to changes in text, rightAnswer, or options
+
       const isTextUpdated = text !== undefined && text.trim() !== question.text;
       const isRightAnswerUpdated = rightAnswer !== undefined && rightAnswer.trim() !== question.rightAnswer;
       const isOptionsUpdated = options !== undefined;
@@ -716,7 +716,7 @@ export class JourneyController {
             transRightAnswer = "";
 
             if (isTextUpdated) {
-              // Generate TTS for the translated target word
+
               try {
                 const langMap = {
                   "english": "en",
@@ -752,7 +752,7 @@ export class JourneyController {
                 const uploadResult = await uploadFile(mockFile);
                 targetAudioUrl = uploadResult.url;
 
-                // Clean up the old translated audio file from S3 if it exists
+
                 if (oldTrans && oldTrans.audio) {
                   await deleteFileFromS3(oldTrans.audio);
                 }
@@ -761,7 +761,7 @@ export class JourneyController {
               }
             }
           } else {
-            // MCQ or Response
+
             transText = await translateText(currentText, langName);
             transRightAnswer = await translateText(currentRightAnswer, langName);
             if (currentOptions && currentOptions.length > 0) {
@@ -781,7 +781,7 @@ export class JourneyController {
 
       if (finalType !== "speaking") {
         updateData.audio = null;
-        // Clean up all S3 translated audios if type is no longer speaking
+
         if (question.translations) {
           for (const [key, value] of question.translations.entries()) {
             if (value && value.audio) {
@@ -828,7 +828,7 @@ export class JourneyController {
       if (question.image) await deleteFileFromS3(question.image);
       if (question.audio) await deleteFileFromS3(question.audio);
 
-      // Delete translated audios from S3
+
       if (question.translations) {
         for (const [key, value] of question.translations.entries()) {
           if (value && value.audio) {
@@ -847,7 +847,7 @@ export class JourneyController {
   static async mapAndHealQuestion(q, langKey, languageToLearn) {
     let qData = q.toObject ? q.toObject() : q;
 
-    // Only translate speaking/pronunciation questions. Keep MCQ and others in English.
+
     if (qData.type !== "speaking") {
       return qData;
     }
@@ -927,8 +927,8 @@ export class JourneyController {
     }
 
     if (trans) {
-      qData.translation = qData.text; // Native meaning explanation
-      qData.text = trans.text || qData.text; // Target spoken word
+      qData.translation = qData.text; 
+      qData.text = trans.text || qData.text; 
       qData.rightAnswer = trans.rightAnswer || qData.rightAnswer;
       qData.options = trans.options && trans.options.length > 0 ? trans.options : qData.options;
       qData.audio = trans.audio || qData.audio;
@@ -1032,13 +1032,13 @@ export class JourneyController {
         .filter((cl) => cl.status === "completed")
         .map((cl) => (cl.journeyLessonId || cl.lessonId)?.toString());
 
-      // Ensure the current lesson is counted as completed
+
       const lessonIdStr = journeyLessonId.toString();
       if (!completedLessonIds.includes(lessonIdStr)) {
         completedLessonIds.push(lessonIdStr);
       }
 
-      // 1. If this lesson belongs to a JourneyTopic, check if all lessons in that JourneyTopic are completed
+
       if (lesson.journeyTopicId) {
         const journeyTopicIdStr = lesson.journeyTopicId.toString();
         const allLessons = await JourneyLessonModel.find({ journeyTopicId: lesson.journeyTopicId });
@@ -1074,7 +1074,7 @@ export class JourneyController {
         }
       }
 
-      // 2. If there is a standalone Topic linked to this lesson, mark it as completed
+
       const standaloneTopic = await TopicModel.findOne({ journeyLessonId });
       if (standaloneTopic) {
         const topicIdStr = standaloneTopic._id.toString();
@@ -1215,7 +1215,7 @@ export class JourneyController {
         return sendBadRequestResponse(res, "Please complete onboarding to choose a learning language.");
       }
 
-      // Fetch all journey topics sorted by topicNumber
+
       const topics = await JourneyTopicModel.find().sort({ topicNumber: 1, createdAt: 1 });
       const analytics = await AnalyticsModel.findOne({ userId: targetUserId });
 
@@ -1230,7 +1230,7 @@ export class JourneyController {
       for (const topic of topics) {
         const topicData = await JourneyController.mapAndHealTopic(topic, langKey, languageToLearn);
 
-        // Fetch lessons for this specific topic
+
         const lessons = await JourneyLessonModel.find({ journeyTopicId: topic._id }).sort({ lessonNumber: 1, createdAt: 1 });
         const lessonsData = [];
 
@@ -1239,7 +1239,7 @@ export class JourneyController {
 
           const questions = await JourneyQuestionModel.find({ journeyLessonId: lesson._id, isDeleted: false });
 
-          // Check if lesson is marked completed in analytics
+
           const isLessonAlreadyCompleted = analytics
             ? analytics.completedLessons.some((cl) => {
                 const targetId = cl.journeyLessonId || cl.lessonId;
@@ -1269,7 +1269,7 @@ export class JourneyController {
           });
         }
 
-        // Map topic points to completion status based on lesson completion
+
         const pointsWithStatus = (topicData.points || []).map((pointText, index) => {
           const correspondingLesson = lessonsData[index];
           return {
@@ -1529,7 +1529,7 @@ export class JourneyController {
         existingQ.completedAt = new Date();
       }
 
-      // Check if all active questions of this lesson are completed
+
       const allLessonQuestions = await JourneyQuestionModel.find({
         journeyLessonId: question.journeyLessonId,
         isDeleted: false,
@@ -1607,9 +1607,7 @@ export class JourneyController {
     }
   }
 
-  /**
-   * Verify answer for MCQ and response questions
-   */
+
   static async verifyJourneyQuestion(req, res) {
     try {
       const { questionId } = req.params;
@@ -1664,7 +1662,7 @@ export class JourneyController {
         existingQ.completedAt = new Date();
       }
 
-      // Check if all active questions of this lesson are completed
+
       const allLessonQuestions = await JourneyQuestionModel.find({
         journeyLessonId: question.journeyLessonId,
         isDeleted: false,
@@ -1743,9 +1741,7 @@ export class JourneyController {
     }
   }
 
-  /**
-   * Reset completion status of a lesson for testing purposes
-   */
+
   static async resetLessonCompletion(req, res) {
     try {
       const { lessonId } = req.params;

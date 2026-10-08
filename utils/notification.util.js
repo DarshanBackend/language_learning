@@ -1,4 +1,4 @@
-// utils/notification.util.js
+
 import notificationModel from "../model/notification.model.js";
 
 

@@ -104,6 +104,97 @@ const UserSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    fcmToken: {
+      type: String,
+      default: null,
+    },
+    tokenVersion: {
+      type: Number,
+      default: 0,
+    },
+    lastLogoutAt: {
+      type: Date,
+      default: null,
+    },
+    trialStartDate: {
+      type: Date,
+      default: Date.now,
+    },
+    trialEndDate: {
+      type: Date,
+      default: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    },
+    isTrialReminderSent: {
+      type: Boolean,
+      default: false,
+    },
+    lastDailyReminderSentDate: {
+      type: String,
+      default: null,
+    },
+    lastStreakReminderSentDate: {
+      type: String,
+      default: null,
+    },
+    subscription: {
+      planId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "subcriptionPlan",
+        default: null,
+      },
+      planTitle: {
+        type: String,
+        default: null,
+      },
+      startDate: {
+        type: Date,
+        default: null,
+      },
+      endDate: {
+        type: Date,
+        default: null,
+      },
+      status: {
+        type: String,
+        enum: ["inactive", "trial", "active", "expired"],
+        default: "trial",
+      },
+      maxMembers: {
+        type: Number,
+        default: 1,
+      },
+      isFamilyMember: {
+        type: Boolean,
+        default: false,
+      },
+      familyOwnerId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        default: null,
+      },
+      familyMembers: [
+        {
+          userId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            default: null,
+          },
+          email: {
+            type: String,
+            lowercase: true,
+            trim: true,
+          },
+          name: {
+            type: String,
+            default: "",
+          },
+          addedAt: {
+            type: Date,
+            default: Date.now,
+          },
+        },
+      ],
+    },
   },
   { timestamps: true }
 );

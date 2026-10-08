@@ -174,7 +174,7 @@ export const handleVoiceMessage = async (req, res) => {
 export const getChatHistory = async (req, res) => {
   try {
     const userId = req.user._id;
-    const history = await ChatSessionModel.find({ userId }).sort({ updatedAt: -1 });
+    const history = await ChatSessionModel.find({ userId, topicName: "General Conversation" }).sort({ updatedAt: -1 });
 
     if (history.length === 0) {
       return sendNotFoundResponse(res, "No any history found...");

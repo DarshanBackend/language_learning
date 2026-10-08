@@ -20,6 +20,21 @@ export default function registerLiveSpeakingSocket(io) {
       if (!user) {
         return next(new Error("Authentication error: User not found"));
       }
+      if (user.isUserDeleted) {
+        return next(new Error("Authentication error: Account deleted"));
+      }
+
+      if (
+        decoded.tokenVersion !== undefined &&
+        decoded.tokenVersion !== (user.tokenVersion || 0)
+      ) {
+        return next(new Error("Authentication error: Session expired or logged out"));
+      }
+
+      const access = await checkUserSubscriptionAccess(user);
+      if (!access.hasAccess) {
+        return next(new Error("Subscription required: Your 7-day free trial has expired."));
+      }
 
       socket.user = user;
       next();

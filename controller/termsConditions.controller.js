@@ -54,7 +54,7 @@ export const createTermsConditions = async (req, res) => {
 
     let terms = await TermsConditionsModel.findOne();
     if (!terms) {
-      // Create a default parent document if it does not exist yet
+
       terms = await TermsConditionsModel.create({
         lastUpdated: "May 2025",
         introduction: "Welcome to Floma! By downloading or using the app, you agree to the following terms and conditions. Please read them carefully.",

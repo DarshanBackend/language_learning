@@ -1,6 +1,8 @@
 import UserModel from "../model/user.model.js";
 import UserSettingsModel from "../model/userSettings.model.js";
 import AnalyticsModel from "../model/analytics.model.js";
+import { syncUserStreak } from "./user.controller.js";
+import { checkUserSubscriptionAccess } from "../middleware/auth.middleware.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import nodemailer from "nodemailer";
@@ -18,16 +20,14 @@ const transporter = nodemailer.createTransport({
 export class AuthController {
   static saltRounds = 10;
   static JWT_SECRET = process.env.JWT_SECRET || "floma_access_token_secret";
-  static otpMap = new Map(); // Stores OTP state for email password reset
+  static otpMap = new Map(); 
 
-  /**
-   * Register a new user or admin with onboarding selections
-   */
+
   static async register(req, res) {
     try {
       const { name, email, password, role = "user", onboarding } = req.body;
 
-      // 1. Verify credentials
+
       if (!name || !email || !password) {
         return res.status(400).json({
           success: false,
@@ -38,7 +38,7 @@ export class AuthController {
       let onboardingData = null;
 
       if (role !== "admin") {
-        // 2. Verify onboarding parameters
+
         if (!onboarding) {
           return res.status(400).json({
             success: false,
@@ -63,7 +63,7 @@ export class AuthController {
           });
         }
 
-        // Format multi-selection arrays
+
         const formattedGoals = Array.isArray(learningGoals)
           ? learningGoals
           : learningGoals
@@ -87,7 +87,7 @@ export class AuthController {
         };
       }
 
-      // Check duplicates
+
       const existingUser = await UserModel.findOne({ email });
       if (existingUser) {
         return res.status(409).json({
@@ -96,34 +96,94 @@ export class AuthController {
         });
       }
 
-      // Hash password
+
       const hashedPassword = await bcrypt.hash(password, AuthController.saltRounds);
 
-      // Generate default avatar using UI Avatars
+
       const formattedName = encodeURIComponent(name.trim());
       const avatarUrl = `https://ui-avatars.com/api/?name=${formattedName}&background=8B1E4F&color=fff&size=128`;
 
-      // Create user
+      const now = new Date();
+      const trialEndDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); 
+
+
+      const cleanEmail = email.toLowerCase().trim();
+      const familyOwner = await UserModel.findOne({
+        "subscription.familyMembers.email": cleanEmail,
+        "subscription.status": "active",
+      });
+
+      let initialSubscription = {
+        status: "trial",
+        startDate: now,
+        endDate: trialEndDate,
+        maxMembers: 1,
+        isFamilyMember: false,
+        familyOwnerId: null,
+        familyMembers: [],
+      };
+      let initialPlan = "free";
+
+      if (familyOwner) {
+        initialSubscription = {
+          status: "active",
+          planTitle: `${familyOwner.subscription.planTitle} (Family Member)`,
+          startDate: familyOwner.subscription.startDate,
+          endDate: familyOwner.subscription.endDate,
+          maxMembers: 1,
+          isFamilyMember: true,
+          familyOwnerId: familyOwner._id,
+          familyMembers: [],
+        };
+        initialPlan = "pro";
+      }
+
+
       const user = await UserModel.create({
         name,
-        email,
+        email: cleanEmail,
         password: hashedPassword,
         avatarUrl,
         role,
-        plan: "free",
+        plan: initialPlan,
+        trialStartDate: now,
+        trialEndDate: trialEndDate,
+        isTrialReminderSent: false,
+        subscription: initialSubscription,
         onboarding: onboardingData,
       });
 
-      // Initialize preferences settings and learning analytics
+
+      if (familyOwner) {
+        await UserModel.updateOne(
+          { _id: familyOwner._id, "subscription.familyMembers.email": cleanEmail },
+          {
+            $set: {
+              "subscription.familyMembers.$.userId": user._id,
+              "subscription.familyMembers.$.name": user.name,
+            },
+          }
+        );
+      }
+
+
       await UserSettingsModel.create({ userId: user._id });
       await AnalyticsModel.create({ userId: user._id });
 
-      // Generate JWT Access Token
+
       const token = jwt.sign(
-        { id: user._id, name: user.name, email: user.email, role: user.role },
+        {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          tokenVersion: user.tokenVersion || 0,
+        },
         AuthController.JWT_SECRET,
         { expiresIn: "7d" }
       );
+
+      const accessInfo = await checkUserSubscriptionAccess(user);
 
       return res.status(201).json({
         success: true,
@@ -137,6 +197,10 @@ export class AuthController {
             role: user.role,
             plan: user.plan,
             onboarding: user.onboarding,
+            trialStartDate: user.trialStartDate,
+            trialEndDate: user.trialEndDate,
+            subscription: user.subscription,
+            subscriptionStatus: accessInfo,
           },
           token,
         },
@@ -151,9 +215,7 @@ export class AuthController {
     }
   }
 
-  /**
-   * Login user or admin by either Email or Username
-   */
+
   static async login(req, res) {
     try {
       const { email, username, emailOrUsername, password } = req.body;
@@ -166,7 +228,7 @@ export class AuthController {
         });
       }
 
-      // Check case-insensitive username match or lowercase email match
+
       const user = await UserModel.findOne({
         $or: [
           { email: identifier.toLowerCase().trim() },
@@ -196,12 +258,21 @@ export class AuthController {
         });
       }
 
-      // Generate JWT Access Token
+
       const token = jwt.sign(
-        { id: user._id, name: user.name, email: user.email, role: user.role },
+        {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          tokenVersion: user.tokenVersion || 0,
+        },
         AuthController.JWT_SECRET,
         { expiresIn: "7d" }
       );
+
+      const streakDays = await syncUserStreak(user);
+      const accessInfo = await checkUserSubscriptionAccess(user);
 
       return res.status(200).json({
         success: true,
@@ -215,8 +286,12 @@ export class AuthController {
             role: user.role,
             plan: user.plan,
             onboarding: user.onboarding,
-            streakDays: user.streakDays,
+            streakDays: streakDays,
             lastPracticedDate: user.lastPracticedDate,
+            trialStartDate: user.trialStartDate,
+            trialEndDate: user.trialEndDate,
+            subscription: user.subscription,
+            subscriptionStatus: accessInfo,
           },
           token,
         },
@@ -231,9 +306,7 @@ export class AuthController {
     }
   }
 
-  /**
-   * 1. Request Password Reset - Send OTP to user's email
-   */
+
   static async sendForgotMailOtp(req, res) {
     try {
       const { email } = req.body;
@@ -253,10 +326,10 @@ export class AuthController {
         });
       }
 
-      // Generate a 4-digit OTP
+
       const OTP = Math.floor(1000 + Math.random() * 9000).toString();
 
-      // Store in memory map for verification (expires in 10 minutes)
+
       AuthController.otpMap.set(email, {
         OTP,
         expiresAt: Date.now() + 10 * 60 * 1000,
@@ -295,7 +368,7 @@ export class AuthController {
       return res.status(200).json({
         success: true,
         message: "Password reset OTP sent to email.",
-        result: { email, otp: OTP }, // returning OTP directly for convenience in testing/dev
+        result: { email, otp: OTP }, 
       });
     } catch (error) {
       console.error("Forgot Password OTP Error:", error.message);
@@ -307,9 +380,7 @@ export class AuthController {
     }
   }
 
-  /**
-   * 2. Verify Forgot Password OTP
-   */
+
   static async verifyForgetOtp(req, res) {
     try {
       const { email, otp } = req.body;
@@ -344,7 +415,7 @@ export class AuthController {
         });
       }
 
-      // Mark the OTP as verified
+
       AuthController.otpMap.set(email, { ...otpEntry, verified: true });
 
       return res.status(200).json({
@@ -361,9 +432,7 @@ export class AuthController {
     }
   }
 
-  /**
-   * 3. Reset Password (with verified email/OTP check)
-   */
+
   static async resetPassword(req, res) {
     try {
       const { email, newPassword } = req.body;
@@ -391,11 +460,11 @@ export class AuthController {
         });
       }
 
-      // Hash and save new password
+
       user.password = await bcrypt.hash(newPassword, AuthController.saltRounds);
       await user.save();
 
-      // Clear memory map
+
       AuthController.otpMap.delete(email);
 
       return res.status(200).json({
@@ -412,9 +481,7 @@ export class AuthController {
     }
   }
 
-  /**
-   * 4. Change Password (Authenticated endpoint)
-   */
+
   static async changePassword(req, res) {
     try {
       const { oldPassword, newPassword } = req.body;
@@ -427,7 +494,7 @@ export class AuthController {
         });
       }
 
-      // Fetch user and explicitly select password field
+
       const user = await UserModel.findById(userId).select("+password");
       if (!user) {
         return res.status(404).json({
@@ -436,7 +503,7 @@ export class AuthController {
         });
       }
 
-      // Verify old password
+
       const isPasswordValid = await bcrypt.compare(oldPassword, user.password);
       if (!isPasswordValid) {
         return res.status(401).json({
@@ -445,7 +512,7 @@ export class AuthController {
         });
       }
 
-      // Hash and update to new password
+
       user.password = await bcrypt.hash(newPassword, AuthController.saltRounds);
       await user.save();
 
@@ -463,9 +530,7 @@ export class AuthController {
     }
   }
 
-  /**
-   * Get logged-in user profile
-   */
+
   static async getUser(req, res) {
     try {
       const id = req.user._id;
@@ -475,10 +540,16 @@ export class AuthController {
         return res.status(404).json({ success: false, message: "User not found" });
       }
 
+      await syncUserStreak(user);
+      const accessInfo = await checkUserSubscriptionAccess(user);
+
       return res.status(200).json({
         success: true,
         message: "User profile fetched successfully",
-        result: user,
+        result: {
+          ...user.toObject(),
+          subscriptionStatus: accessInfo,
+        },
       });
     } catch (error) {
       console.error("Get User Error:", error.message);
@@ -490,16 +561,26 @@ export class AuthController {
     }
   }
 
-  /**
-   * Simple logout handler
-   */
+
   static async logout(req, res) {
     try {
+      const userId = req.user?._id;
+
+      if (userId) {
+
+        await UserModel.findByIdAndUpdate(userId, {
+          $inc: { tokenVersion: 1 },
+          fcmToken: null,
+          lastLogoutAt: new Date(),
+        });
+      }
+
       return res.status(200).json({
         success: true,
         message: "Logged out successfully",
       });
     } catch (error) {
+      console.error("Logout Error:", error.message);
       return res.status(500).json({
         success: false,
         message: "Error logging out",
@@ -508,9 +589,7 @@ export class AuthController {
     }
   }
 
-  /**
-   * Update FCM Token
-   */
+
   static async updateFcmToken(req, res) {
     try {
       const userId = req.user._id;
